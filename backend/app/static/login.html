@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>N.E.R.E — Login</title>
+  <link rel="stylesheet" href="/assets/desktop.css" />
+</head>
+<body>
+  <canvas id="dither-bg"></canvas>
+
+  <div class="desktop" style="display:flex;align-items:center;justify-content:center;height:100vh">
+    <div class="mac-window" data-win-id="login" data-win-title="Login" style="position:static;width:340px">
+      <div class="mac-titlebar">
+        <div class="mac-titlebar-title">N.E.R.E — Login</div>
+      </div>
+      <div class="mac-body">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" />
+        <label for="password" style="margin-top:8px">Password</label>
+        <input id="password" type="password" autocomplete="current-password" />
+        <div style="margin-top:12px">
+          <button id="login">Entrar</button>
+        </div>
+        <div id="result" style="margin-top:12px"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/dither-bg.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const next = params.get('next') || '/';
+
+    async function doLogin() {
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const resultEl = document.getElementById('result');
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        resultEl.innerHTML = `<p style="color:var(--err)">Error: ${err.detail}</p>`;
+        return;
+      }
+      location.href = next;
+    }
+
+    document.getElementById('login').addEventListener('click', doLogin);
+    document.getElementById('password').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doLogin();
+    });
+  </script>
+</body>
+</html>

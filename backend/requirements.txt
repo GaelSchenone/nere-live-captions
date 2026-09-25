@@ -2,7 +2,8 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 faster-whisper>=1.0.3
 pywhispercpp>=1.5.1
-webrtcvad>=2.0.10
+webrtcvad-wheels>=2.0.10; sys_platform == "win32"
+webrtcvad>=2.0.10; sys_platform != "win32"
 numpy>=1.26
 google-genai>=0.3.0
 httpx>=0.28.1
@@ -10,6 +11,7 @@ python-dotenv>=1.0
 pydantic>=2.7
 setuptools<81
 platformdirs>=4.0
+sqlalchemy>=2.0
 
 # Traduccion (NMT local, sin LLM): CTranslate2 ya viene con faster-whisper.
 # sentencepiece y subword-nmt/sacremoses cubren los dos esquemas de

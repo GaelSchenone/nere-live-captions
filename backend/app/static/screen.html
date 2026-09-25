@@ -36,7 +36,7 @@
       box-shadow: 0 4px 16px rgba(0,0,0,0.4);
       display: none;
     }
-    #qr-box img { display: block; width: 110px; height: 110px; }
+    #qr-box img { display: block; }
     #qr-box span { display: block; margin-top: 4px; font-size: 11px; color: #111; }
   </style>
 </head>
@@ -77,6 +77,13 @@
       captionEl.style.webkitTextStroke = style.outline_enabled ? `2px ${style.outline_color}` : '';
       document.body.style.background = style.bg_mode === 'solid' ? style.bg_color : '#000';
       captionEl.style.background = style.bg_mode === 'behind_text' ? style.bg_color : 'transparent';
+
+      const box = document.getElementById('qr-box');
+      const img = document.getElementById('qr-img');
+      box.style.display = style.qr_enabled === false ? 'none' : 'block';
+      const size = (style.qr_size || 110) + 'px';
+      img.style.width = size;
+      img.style.height = size;
     }
 
     function appendCaption(data) {
@@ -95,10 +102,9 @@
     }
 
     function showQr() {
-      const box = document.getElementById('qr-box');
-      const img = document.getElementById('qr-img');
-      img.src = `/api/sessions/${sessionId}/audience-qr.svg`;
-      box.style.display = 'block';
+      // La visibilidad/tamaño real los decide applyStyle() -- esto solo carga
+      // la imagen una vez, no depende de que ya haya llegado el estilo.
+      document.getElementById('qr-img').src = `/api/sessions/${sessionId}/audience-qr.svg`;
     }
 
     function connect() {

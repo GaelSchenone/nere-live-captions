@@ -10,7 +10,7 @@
   <canvas id="dither-bg"></canvas>
 
   <div class="mac-menubar">
-    <div class="apple-logo">🍎</div>
+    <div class="apple-logo"><span class="menu-logo">CC</span></div>
     <div class="mac-menu">
       <div class="mac-menu-label">Archivo</div>
       <div class="mac-menu-dropdown">
@@ -59,10 +59,14 @@
         <div style="margin-top:0.5rem">
           <button id="start">Iniciar captura de audio</button>
           <button id="stop" class="danger" disabled>Detener</button>
+        </div>
+        <div style="margin-top:0.5rem">
           <button id="open_overlay" class="secondary">Abrir ventana de subtítulos ↗</button>
           <button id="copy_overlay" class="secondary">Copiar link para OBS 📋</button>
           <button id="open_screen" class="secondary">Abrir pantalla de sala ↗</button>
           <button id="copy_screen" class="secondary">Copiar link de pantalla 📋</button>
+        </div>
+        <div style="margin-top:1rem">
           <button id="end_session" class="danger">Terminar sesión</button>
         </div>
         <p class="muted" style="margin-top:0.75rem">
@@ -162,6 +166,19 @@
     </div>
   </div>
 
+  <div id="confirm-end-backdrop" class="modal-backdrop" hidden>
+    <div class="mac-window modal-window">
+      <div class="mac-titlebar"><div class="mac-titlebar-title">Confirmar</div></div>
+      <div class="mac-body">
+        <p>¿Terminar la sesión? La audiencia va a dejar de recibir subtítulos nuevos.</p>
+        <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+          <button id="confirm-end-cancel" class="secondary">Cancelar</button>
+          <button id="confirm-end-ok" class="danger">Sí, terminar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="/assets/dither-bg.js"></script>
   <script src="/assets/mac-wm.js"></script>
   <script src="/assets/captions-ws.js"></script>
@@ -248,7 +265,15 @@
     // tenga esa ventana abierta -- incluyendo OBS/vMix (Browser Source corre
     // un navegador embebido aparte, asi que un BroadcastChannel/localStorage
     // del navegador normal nunca le llegaria).
-    function styleFormHtml(prefix) {
+    function styleFormHtml(prefix, target) {
+      const qrSection = target === 'screen' ? `
+        <div style="display:flex;align-items:center;gap:6px;margin-top:12px">
+          <input type="checkbox" id="${prefix}_qr_enabled" style="width:auto" checked />
+          <label style="margin:0" for="${prefix}_qr_enabled">Mostrar QR para unirse desde el celular</label>
+        </div>
+        <label for="${prefix}_qr_size">Tamaño del QR (<span id="${prefix}_qr_size_val"></span>px)</label>
+        <input type="range" id="${prefix}_qr_size" min="60" max="300" step="10" value="110" />
+      ` : '';
       return `
         <label for="${prefix}_lang">Idioma</label>
         <select id="${prefix}_lang">
@@ -284,15 +309,17 @@
           <label style="margin:0" for="${prefix}_outline_enabled">Contorno de texto (para contraste, ej. texto amarillo con borde negro)</label>
         </div>
         <input type="color" id="${prefix}_outline_color" value="#000000" style="margin-top:6px" />
+        ${qrSection}
       `;
     }
 
     function wireStyleForm(container) {
       const target = container.dataset.target;
       const prefix = container.dataset.prefix;
-      container.innerHTML = styleFormHtml(prefix);
+      container.innerHTML = styleFormHtml(prefix, target);
       const $ = (name) => document.getElementById(`${prefix}_${name}`);
       const fields = ['lang', 'font_family', 'text_color', 'font_size', 'bg_mode', 'bg_color', 'outline_enabled', 'outline_color'];
+      if (target === 'screen') fields.push('qr_enabled', 'qr_size');
 
       async function load(sessionId) {
         if (!sessionId) return;
@@ -302,10 +329,11 @@
           const s = await res.json();
           fields.forEach((f) => {
             const el = $(f);
-            if (f === 'outline_enabled') el.checked = s[f];
+            if (f === 'outline_enabled' || f === 'qr_enabled') el.checked = s[f];
             else el.value = s[f];
           });
           $('font_size_val').textContent = s.font_size;
+          if (target === 'screen') $('qr_size_val').textContent = s.qr_size;
         } catch (e) { /* sesion todavia no existe, ignorar */ }
       }
 
@@ -313,10 +341,13 @@
         const sessionId = sessionInput.value.trim();
         if (!sessionId) return;
         $('font_size_val').textContent = $('font_size').value;
+        if (target === 'screen') $('qr_size_val').textContent = $('qr_size').value;
         const body = {};
         fields.forEach((f) => {
           const el = $(f);
-          body[f] = f === 'outline_enabled' ? el.checked : (f === 'font_size' ? Number(el.value) : el.value);
+          const isCheckbox = f === 'outline_enabled' || f === 'qr_enabled';
+          const isNumber = f === 'font_size' || f === 'qr_size';
+          body[f] = isCheckbox ? el.checked : (isNumber ? Number(el.value) : el.value);
         });
         try {
           await fetch(`/api/sessions/${sessionId}/style/${target}`, {
@@ -351,9 +382,33 @@
       vadMinSpeechMsVal.textContent = vadMinSpeechMs.value;
     }
 
+    const VAD_STORAGE_KEY = 'nere_vad_settings';
+
+    function loadVadSettingsFromBrowser() {
+      try {
+        return JSON.parse(localStorage.getItem(VAD_STORAGE_KEY));
+      } catch {
+        return null;
+      }
+    }
+
+    function saveVadSettingsToBrowser(s) {
+      try {
+        localStorage.setItem(VAD_STORAGE_KEY, JSON.stringify(s));
+      } catch {
+        // localStorage puede fallar (modo privado, storage lleno) -- no es
+        // critico, la config igual se aplica en el servidor.
+      }
+    }
+
     async function loadVadSettings() {
-      const res = await fetch('/api/vad-settings');
-      const s = await res.json();
+      // Preferimos lo ultimo que este mismo navegador guardo -- si no, el
+      // valor actual del proceso (puede ser el que dejo otro operador).
+      let s = loadVadSettingsFromBrowser();
+      if (!s) {
+        const res = await fetch('/api/vad-settings');
+        s = await res.json();
+      }
       vadAggressiveness.value = s.vad_aggressiveness;
       vadSilenceMs.value = s.vad_silence_ms;
       vadMaxBufferSeconds.value = s.vad_max_buffer_seconds;
@@ -382,6 +437,7 @@
         vadSaveResult.innerHTML = `<span style="color:var(--err)">Error: ${err.detail}</span>`;
         return;
       }
+      saveVadSettingsToBrowser(body);
       vadSaveResult.innerHTML = '<span style="color:var(--accent)">Guardado — se aplica a las próximas sesiones que crees.</span>';
       setTimeout(() => { vadSaveResult.textContent = ''; }, 3000);
     });
@@ -586,10 +642,26 @@
 
     stopBtn.addEventListener('click', stopCapture);
 
+    function confirmEndSession() {
+      const backdrop = document.getElementById('confirm-end-backdrop');
+      return new Promise((resolve) => {
+        const onOk = () => { close(); resolve(true); };
+        const onCancel = () => { close(); resolve(false); };
+        function close() {
+          backdrop.hidden = true;
+          document.getElementById('confirm-end-ok').removeEventListener('click', onOk);
+          document.getElementById('confirm-end-cancel').removeEventListener('click', onCancel);
+        }
+        document.getElementById('confirm-end-ok').addEventListener('click', onOk);
+        document.getElementById('confirm-end-cancel').addEventListener('click', onCancel);
+        backdrop.hidden = false;
+      });
+    }
+
     endSessionBtn.addEventListener('click', async () => {
       const sessionId = sessionInput.value.trim();
       if (!sessionId) { alert('Poné el id de la sesión'); return; }
-      if (!confirm('¿Terminar la sesión? La audiencia va a dejar de recibir subtítulos nuevos.')) return;
+      if (!(await confirmEndSession())) return;
       stopCapture();
       const res = await fetch(`/api/sessions/${sessionId}/end`, { method: 'POST' });
       if (!res.ok) {
