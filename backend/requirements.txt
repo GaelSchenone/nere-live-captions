@@ -9,3 +9,12 @@ httpx>=0.28.1
 python-dotenv>=1.0
 pydantic>=2.7
 setuptools<81
+platformdirs>=4.0
+
+# Traduccion (NMT local, sin LLM): CTranslate2 ya viene con faster-whisper.
+# sentencepiece y subword-nmt/sacremoses cubren los dos esquemas de
+# tokenizacion que usan los paquetes de Argos Translate (algunos usan
+# SentencePiece, otros el BPE clasico de OPUS-MT/Marian con Moses).
+sentencepiece>=0.2.0
+subword-nmt>=0.3.8
+sacremoses>=0.1.1

@@ -31,6 +31,36 @@ class Session:
     segments: list[CaptionSegment] = field(default_factory=list)
     audience_ws: set = field(default_factory=set)
     ingest_ws: set = field(default_factory=set)  # WS del operador mandando audio; se cierran al terminar la sesion
+    # Estilo de cada ventana de subtitulos, configurado por separado -- OBS
+    # (/overlay) y audiencia (/audience) suelen querer looks distintos (ej.
+    # OBS con fondo transparente, audiencia con fondo negro solido), aunque
+    # ambas se controlan desde el mismo panel del operador.
+    styles: dict = field(
+        default_factory=lambda: {
+            "overlay": {
+                "lang": "es",
+                "font_family": "system",
+                "text_color": "#ffffff",
+                "font_size": 56,
+                # bg_mode: "transparent" (nada) | "solid" (toda la ventana) | "behind_text"
+                # (una caja de fondo ajustada al texto, no a toda la ventana)
+                "bg_mode": "transparent",
+                "bg_color": "#000000",
+                "outline_enabled": False,
+                "outline_color": "#000000",
+            },
+            "audience": {
+                "lang": "es",
+                "font_family": "system",
+                "text_color": "#ffffff",
+                "font_size": 28,
+                "bg_mode": "solid",
+                "bg_color": "#000000",
+                "outline_enabled": False,
+                "outline_color": "#000000",
+            },
+        }
+    )
     monitor_stats: dict = field(
         default_factory=lambda: {
             "chunks_received": 0,
@@ -98,6 +128,12 @@ class SessionManager:
             except Exception:
                 pass
         session.ingest_ws.clear()
+
+    def style_payload(self, session: Session, target: str) -> dict:
+        return {"type": f"{target}_style", **session.styles[target]}
+
+    async def broadcast_style(self, session: Session, target: str):
+        await self.broadcast(session, self.style_payload(session, target))
 
     async def broadcast(self, session: Session, payload: dict):
         dead = []

@@ -4,13 +4,15 @@ Transcripción y traducción simultánea open source para conferencias con mucha
 en paralelo (nacido en la Vibeathon de Nerdearla, pensado para ser reusable por cualquier evento).
 
 Toma audio en vivo por sesión (charla) y genera subtítulos casi en tiempo real: transcripción
-en el idioma original, distribuidos por WebSocket a cuantas sesiones simultáneas hagan falta.
+en el idioma original + traducción automática (español↔inglés), distribuidos por WebSocket
+a cuantas sesiones simultáneas hagan falta.
 
-> **Traducción automática (español↔inglés): en construcción.** El traductor anterior
-> pegaba a la API de Gemini por cada segmento; se sacó del camino crítico porque un LLM
-> es overkill para traducir frases cortas y agregaba una dependencia externa innecesaria.
-> Los subtítulos hoy salen solo en el idioma original — la idea es reemplazarlo por un
-> motor de traducción automática (NMT) sin LLM, corriendo local.
+> **Traducción: NMT local, sin LLM.** La versión anterior traducía pegándole a la API de
+> Gemini por cada segmento; un LLM es overkill para traducir frases cortas y agregaba una
+> dependencia externa innecesaria al camino crítico. Ahora la traducción corre 100% local
+> con CTranslate2 (mismo motor de inferencia que usa `faster-whisper`) y modelos de
+> [Argos Translate](https://www.argosopentech.com/) — sin API, sin key, sin latencia de
+> red. Agrega ~50-350ms por segmento (medido), contra varios segundos del ASR.
 
 ## Por qué esta arquitectura
 
@@ -24,8 +26,9 @@ En cambio, acá **desacoplamos transcripción de traducción**:
    transcripción es intercambiable por sesión (ver [Motores de transcripción](#motores-de-transcripción-asr)):
    por defecto es local (`faster-whisper`, sin red de por medio), pero se puede elegir uno en
    la nube para comparar calidad/latencia.
-2. **Traducción** (pendiente de reintegrar), solo del texto ya transcripto (payload chico),
-   pensada para responder en cientos de milisegundos sin depender de un LLM.
+2. **Traducción con CTranslate2** (ver [Traducción](#traducción-nmt-local)), solo del texto
+   ya transcripto (payload chico), responde en decenas/cientos de milisegundos sin
+   depender de un LLM ni de una API externa.
 3. **Distribución por WebSocket**: cada sesión tiene su propio canal de audiencia; agregar
    sesiones nuevas es solo crear otro `Session` en memoria, no levantar infraestructura nueva.
 
@@ -43,7 +46,7 @@ Operador (mic/audio de sala)  --PCM16 16kHz-->  WebSocket /ws/ingest/{session}
                                                       │
                                     texto transcripto + idioma detectado
                                                       │
-                                    (traducción -- pendiente de reintegrar)
+                                CTranslate2 + Argos Translate (traduccion, local)
                                                       │
                                           Session.segments[] (memoria)
                                                       │
@@ -56,10 +59,18 @@ Operador (mic/audio de sala)  --PCM16 16kHz-->  WebSocket /ws/ingest/{session}
 - **Frontend**: HTML/JS vanilla servido por el mismo FastAPI (sin build step):
   - `/` — crear sesiones (charlas), elegir motor de transcripción, y ver cuáles están activas.
   - `/operator?session=ID` — dashboard del expositor: captura audio del mic/sala, espectrograma
-    en vivo para verificar que el audio llega, y transcripción local de verificación.
-  - `/audience?session=ID` — la audiencia elige charla + idioma y ve los subtítulos en vivo.
-  - `/overlay?session=ID` — ventana de solo texto (color/fondo/tamaño configurables, con
-    fondo transparente) para proyectar o usar como Browser Source en OBS/vMix.
+    en vivo para verificar que el audio llega, transcripción local de verificación, y control
+    en vivo del look de `/overlay` (ver abajo).
+  - `/audience?session=ID` — la audiencia elige charla + idioma; los subtítulos se van
+    acumulando como un feed (línea nueva abajo, las anteriores arriba con `- `) para poder
+    releer si te perdiste algo, no solo la última frase.
+  - `/overlay?session=ID` — ventana de solo texto para proyectar o usar como Browser Source
+    en OBS/vMix. Es puramente un display: no tiene ajustes propios (ni engranaje ni panel) —
+    todo (idioma, color, tamaño, fondo, contorno) se controla en vivo desde `/operator`, y
+    viaja por WebSocket/servidor, no por `BroadcastChannel` del navegador. Esto importa porque
+    el Browser Source de OBS corre un Chromium embebido aparte del navegador normal: un
+    mecanismo que dependa de compartir el mismo navegador (BroadcastChannel, localStorage)
+    nunca le llega a OBS.
   - `/monitor` — panel para el equipo de producción: estado, motor, % de audio detectado
     como voz, latencia, errores por sesión.
 
@@ -225,11 +236,43 @@ Además del motor, cada sesión elige cómo se cortan los segmentos de audio:
   sesión con corte fijo. Si tampoco transcribe nada ahí, el problema es de captura de audio
   (mic equivocado, permisos, volumen) — no del VAD ni del motor elegido.
 
-## Glosario de términos técnicos
+## Traducción (NMT local)
+
+Cada segmento transcripto se traduce con [CTranslate2](https://github.com/OpenNMT/CTranslate2)
+(el mismo motor de inferencia que usa `faster-whisper`) cargando modelos de
+[Argos Translate](https://www.argosopentech.com/) directo -- **sin** la librería
+`argostranslate` (ver por qué abajo), sin LLM, sin API externa. Español↔inglés por ahora
+(`backend/app/translate.py`, dict `PACKAGE_URLS`); agregar un idioma más es sumar una entrada
+con la URL del paquete `.argosmodel` correspondiente del
+[índice de Argos](https://github.com/argosopentech/argospm-index).
+
+- **Primera vez que se usa un par de idiomas**: descarga el paquete (~90-285MB) a
+  `~/.local/share/nere-live-captions/translate_models/` y lo cachea ahí.
+- **Latencia real** (medida): ~50-350ms por segmento, contra varios segundos del ASR --
+  la traducción no es el cuello de botella.
+- **Por qué no la librería `argostranslate`**: `pip install argostranslate` trae como
+  dependencia dura `torch` + `spacy` + `stanza` (¡solo para detectar límites de oración en
+  documentos largos, que no necesitamos -- nuestros segmentos ya vienen cortados por el
+  VAD!) -- son +6GB de dependencias que nunca se usan en este flujo. Los paquetes `.argosmodel`
+  en sí son solo un `.zip` con un modelo CTranslate2 + su tokenizer, así que se cargan
+  directo con `ctranslate2` + `sentencepiece`/`subword-nmt`+`sacremoses` (todo liviano).
+- **Dos esquemas de tokenización distintos** conviven en los paquetes de Argos según qué
+  modelo entrenaron: algunos usan SentencePiece solo; los derivados directo de OPUS-MT/Marian
+  usan BPE clásico (`subword-nmt`) sobre texto normalizado al estilo Moses (`sacremoses`) --
+  el código detecta cuál es por los archivos que trae el paquete (`sentencepiece.model` vs
+  `bpe.model`) y usa el pipeline correspondiente.
+- **`compute_type` en `default` (no `int8`)**: probado que forzar cuantización int8 sobre
+  estos modelos rompe la salida (genera texto repetitivo sin sentido) en al menos uno de los
+  dos pares -- no hace falta de todos modos, ya andan sobrados de rápido sin cuantizar.
+
+### Glosario de términos técnicos
 
 Al crear una sesión se puede pasar una lista de términos/nombres propios (`glossary`) para
 que el traductor no los traduzca ni los distorsione (nombres de proyectos, speakers,
-tecnologías). Se guarda por sesión; falta conectarlo al nuevo traductor una vez reintegrado.
+tecnologías). Un NMT local no tiene prompt al que pedirle "no traduzcas esto" -- el término
+se reemplaza por un placeholder numérico antes de traducir y se restaura después. Probado:
+un placeholder con letras (aunque no forme una palabra real) puede salir mutado del otro
+lado del pipeline Moses+BPE; uno puramente numérico sobrevive intacto en ambos esquemas.
 
 ## Exportar transcripción
 
@@ -255,13 +298,15 @@ sin transmitir.
 - [x] Vista de audiencia con selección de charla + idioma
 - [x] Exportar SRT/VTT/TXT
 - [x] Panel de monitoreo básico (latencia, errores, estado)
-- [x] Integración OBS/vMix: `/overlay?session=ID`, texto solo con fondo transparente,
-      pensado como Browser Source.
+- [x] Integración OBS/vMix: `/overlay?session=ID`, pensado como Browser Source, con fondo
+      transparente/detrás del texto/contorno, controlado en vivo desde `/operator` vía servidor
+      (no `BroadcastChannel`, que no le llega al Browser Source embebido de OBS).
 - [x] Motor de transcripción seleccionable por sesión (local / OpenAI / Gemini audio) para
       comparar calidad y latencia.
-- [ ] Traducción automática español↔inglés con un motor NMT local (sin LLM), reintegrando
-      el glosario de términos técnicos por sesión.
-- [ ] Portugués como idioma adicional (agregar `pt` a los targets de traducción y probarlo)
+- [x] Traducción automática español↔inglés con un motor NMT local (CTranslate2 + Argos
+      Translate, sin LLM), con glosario de términos técnicos por sesión.
+- [ ] Portugués como idioma adicional (sumar el par a `PACKAGE_URLS` en `translate.py` y
+      a los targets de `_targets_for` en `ws.py`)
 - [ ] Autenticación básica para las vistas de operador/monitoreo (hoy son abiertas).
 
 ## Licencia

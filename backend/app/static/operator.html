@@ -71,36 +71,25 @@
       </div>
     </div>
 
-    <div class="mac-window" data-win-id="overlay-style" data-win-title="Ventana de subtítulos" data-win-x="660" data-win-y="20" data-win-w="330" data-win-h="420" data-win-min-w="280" data-win-min-h="360">
+    <div class="mac-window" data-win-id="overlay-style" data-win-title="Ventana de subtítulos" data-win-x="660" data-win-y="20" data-win-w="340" data-win-h="640" data-win-min-w="280" data-win-min-h="400">
       <div class="mac-titlebar">
         <div class="mac-close"></div>
         <div class="mac-titlebar-title">Ventana de subtítulos</div>
         <div class="mac-zoom"></div>
       </div>
       <div class="mac-body">
-        <p class="muted">Estos ajustes se aplican en vivo a cualquier ventana de subtítulos
-          (<code>/overlay</code>) que tengas abierta, sin tener que tocarla directamente.</p>
+        <p class="muted">Dos configuraciones independientes, cada una se manda al servidor y
+          se aplica en vivo a su ventana -- funciona tambien si <code>/overlay</code> esta
+          corriendo adentro de OBS/vMix como Browser Source (no solo en una pestaña del
+          navegador).</p>
 
-        <label for="ov_font_family">Fuente</label>
-        <select id="ov_font_family">
-          <option value="system">Sans (sistema)</option>
-          <option value="serif">Serif</option>
-          <option value="monospace">Monoespaciada</option>
-          <option value="display">Display / impacto</option>
-        </select>
+        <h3 style="margin:14px 0 4px">Para OBS/vMix (<code>/overlay</code>)</h3>
+        <div id="style-form-overlay" class="style-form" data-target="overlay" data-prefix="ov"></div>
 
-        <label for="ov_text_color">Color de texto</label>
-        <input type="color" id="ov_text_color" value="#ffffff" />
-
-        <label for="ov_bg_color">Color de fondo</label>
-        <input type="color" id="ov_bg_color" value="#000000" />
-        <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
-          <input type="checkbox" id="ov_transparent" style="width:auto" />
-          <label style="margin:0" for="ov_transparent">Fondo transparente (para OBS/vMix)</label>
-        </div>
-
-        <label for="ov_font_size">Tamaño de letra (<span id="ov_font_size_val"></span>px)</label>
-        <input type="range" id="ov_font_size" min="24" max="160" step="2" value="56" />
+        <h3 style="margin:18px 0 4px">Para la audiencia (<code>/audience</code>)</h3>
+        <p class="muted" style="margin:0 0 6px">La audiencia además puede elegir su propia
+          fuente en su vista, esto es solo el look por defecto.</p>
+        <div id="style-form-audience" class="style-form" data-target="audience" data-prefix="au"></div>
       </div>
     </div>
 
@@ -226,52 +215,97 @@
       setTimeout(() => { copyOverlayBtn.textContent = originalLabel; }, 1800);
     });
 
-    // ---------- Config en vivo de la ventana de subtitulos ----------
-    const OVERLAY_STORAGE_KEY = 'overlay_settings_v1';
-    const overlayStyleChannel = ('BroadcastChannel' in window) ? new BroadcastChannel('nc-overlay-style') : null;
+    // ---------- Config en vivo de las ventanas de subtitulos ----------
+    // Dos formularios identicos (OBS y audiencia), cada uno manda al servidor
+    // (POST /api/sessions/{id}/style/{target}), que reenvia por WS a quien
+    // tenga esa ventana abierta -- incluyendo OBS/vMix (Browser Source corre
+    // un navegador embebido aparte, asi que un BroadcastChannel/localStorage
+    // del navegador normal nunca le llegaria).
+    function styleFormHtml(prefix) {
+      return `
+        <label for="${prefix}_lang">Idioma</label>
+        <select id="${prefix}_lang">
+          <option value="es">Español</option>
+          <option value="en">Inglés</option>
+          <option value="original">Original (sin traducir)</option>
+        </select>
 
-    function mergeOverlaySettings(partial) {
-      let current = {};
-      try { current = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY) || '{}'); } catch (e) {}
-      const merged = { ...current, ...partial };
-      try { localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify(merged)); } catch (e) {}
-      return merged;
+        <label for="${prefix}_font_family">Fuente</label>
+        <select id="${prefix}_font_family">
+          <option value="system">Sans (sistema)</option>
+          <option value="serif">Serif</option>
+          <option value="monospace">Monoespaciada</option>
+          <option value="display">Display / impacto</option>
+        </select>
+
+        <label for="${prefix}_text_color">Color de texto</label>
+        <input type="color" id="${prefix}_text_color" value="#ffffff" />
+
+        <label for="${prefix}_font_size">Tamaño de letra (<span id="${prefix}_font_size_val"></span>px)</label>
+        <input type="range" id="${prefix}_font_size" min="16" max="160" step="2" value="56" />
+
+        <label for="${prefix}_bg_mode">Fondo</label>
+        <select id="${prefix}_bg_mode">
+          <option value="transparent">Transparente (para OBS/vMix)</option>
+          <option value="behind_text">Detrás del texto (una caja ajustada, no toda la ventana)</option>
+          <option value="solid">Toda la ventana</option>
+        </select>
+        <input type="color" id="${prefix}_bg_color" value="#000000" style="margin-top:6px" />
+
+        <div style="display:flex;align-items:center;gap:6px;margin-top:12px">
+          <input type="checkbox" id="${prefix}_outline_enabled" style="width:auto" />
+          <label style="margin:0" for="${prefix}_outline_enabled">Contorno de texto (para contraste, ej. texto amarillo con borde negro)</label>
+        </div>
+        <input type="color" id="${prefix}_outline_color" value="#000000" style="margin-top:6px" />
+      `;
     }
 
-    const ovFontFamily = document.getElementById('ov_font_family');
-    const ovTextColor = document.getElementById('ov_text_color');
-    const ovBgColor = document.getElementById('ov_bg_color');
-    const ovTransparent = document.getElementById('ov_transparent');
-    const ovFontSize = document.getElementById('ov_font_size');
-    const ovFontSizeVal = document.getElementById('ov_font_size_val');
+    function wireStyleForm(container) {
+      const target = container.dataset.target;
+      const prefix = container.dataset.prefix;
+      container.innerHTML = styleFormHtml(prefix);
+      const $ = (name) => document.getElementById(`${prefix}_${name}`);
+      const fields = ['lang', 'font_family', 'text_color', 'font_size', 'bg_mode', 'bg_color', 'outline_enabled', 'outline_color'];
 
-    (function loadOverlayControlsFromStorage() {
-      let saved = {};
-      try { saved = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY) || '{}'); } catch (e) {}
-      ovFontFamily.value = saved.font_family || 'system';
-      ovTextColor.value = saved.text_color || '#ffffff';
-      ovBgColor.value = saved.bg_color || '#000000';
-      ovTransparent.checked = !!saved.transparent;
-      ovFontSize.value = saved.font_size || 56;
-      ovFontSizeVal.textContent = ovFontSize.value;
-    })();
+      async function load(sessionId) {
+        if (!sessionId) return;
+        try {
+          const res = await fetch(`/api/sessions/${sessionId}/style/${target}`);
+          if (!res.ok) return;
+          const s = await res.json();
+          fields.forEach((f) => {
+            const el = $(f);
+            if (f === 'outline_enabled') el.checked = s[f];
+            else el.value = s[f];
+          });
+          $('font_size_val').textContent = s.font_size;
+        } catch (e) { /* sesion todavia no existe, ignorar */ }
+      }
 
-    function pushOverlayStyle() {
-      const partial = {
-        font_family: ovFontFamily.value,
-        text_color: ovTextColor.value,
-        bg_color: ovBgColor.value,
-        transparent: ovTransparent.checked,
-        font_size: Number(ovFontSize.value),
-      };
-      ovFontSizeVal.textContent = partial.font_size;
-      mergeOverlaySettings(partial);
-      if (overlayStyleChannel) overlayStyleChannel.postMessage(partial);
+      async function push() {
+        const sessionId = sessionInput.value.trim();
+        if (!sessionId) return;
+        $('font_size_val').textContent = $('font_size').value;
+        const body = {};
+        fields.forEach((f) => {
+          const el = $(f);
+          body[f] = f === 'outline_enabled' ? el.checked : (f === 'font_size' ? Number(el.value) : el.value);
+        });
+        try {
+          await fetch(`/api/sessions/${sessionId}/style/${target}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+        } catch (e) { /* sesion todavia no existe o se cayo la red, ignorar */ }
+      }
+
+      fields.forEach((f) => $(f).addEventListener('input', push));
+      if (sessionInput.value.trim()) load(sessionInput.value.trim());
+      sessionInput.addEventListener('change', () => load(sessionInput.value.trim()));
     }
 
-    [ovFontFamily, ovTextColor, ovBgColor, ovTransparent, ovFontSize].forEach((el) => {
-      el.addEventListener('input', pushOverlayStyle);
-    });
+    document.querySelectorAll('.style-form').forEach(wireStyleForm);
 
     // ---------- Ajustes de VAD (en memoria del servidor, para sesiones futuras) ----------
     const vadAggressiveness = document.getElementById('vad_aggressiveness');

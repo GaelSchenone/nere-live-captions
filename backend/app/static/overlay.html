@@ -9,6 +9,7 @@
       margin: 0;
       height: 100%;
       overflow: hidden;
+      background: transparent;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     #stage {
@@ -19,107 +20,37 @@
       justify-content: center;
       padding: 3vh 4vw;
       box-sizing: border-box;
+      background: transparent;
     }
     #caption {
+      display: inline-block;
       text-align: center;
       line-height: 1.25;
       font-weight: 700;
       text-shadow: 0 2px 8px rgba(0,0,0,0.6);
       word-wrap: break-word;
       max-width: 100%;
+      padding: 0.1em 0.3em;
+      border-radius: 6px;
     }
-    #gear {
-      position: fixed;
-      top: 12px;
-      right: 12px;
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      border: none;
-      background: rgba(0,0,0,0.35);
-      color: #fff;
-      font-size: 16px;
-      cursor: pointer;
-      opacity: 0.25;
-      transition: opacity 0.15s;
-      z-index: 10;
-    }
-    #gear:hover { opacity: 1; }
-
-    #panel {
-      position: fixed;
-      top: 54px;
-      right: 12px;
-      background: #1a1c22;
-      color: #eee;
-      border: 1px solid #333;
-      border-radius: 10px;
-      padding: 14px;
-      font-size: 13px;
-      width: 240px;
-      display: none;
-      z-index: 10;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-    }
-    #panel.open { display: block; }
-    #panel label { display: block; margin: 10px 0 4px; color: #9aa1af; }
-    #panel input[type="color"] { width: 100%; height: 28px; border: none; background: none; padding: 0; }
-    #panel input[type="range"] { width: 100%; }
-    #panel select { width: 100%; padding: 4px; }
-    #panel .checkrow { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
-    #panel .checkrow input { width: auto; }
-    #panel .hint { color: #6b7280; font-size: 11px; margin-top: 10px; }
   </style>
 </head>
 <body>
   <div id="stage"><div id="caption">Esperando subtítulos...</div></div>
 
-  <button id="gear" title="Ajustes">⚙</button>
-  <div id="panel">
-    <label>Sesión</label>
-    <input type="text" id="session_id" placeholder="id de sesión" />
-
-    <label>Idioma</label>
-    <select id="lang">
-      <option value="es">Español</option>
-      <option value="en">Inglés</option>
-      <option value="original">Original (sin traducir)</option>
-    </select>
-
-    <label>Fuente</label>
-    <select id="font_family">
-      <option value="system">Sans (sistema)</option>
-      <option value="serif">Serif</option>
-      <option value="monospace">Monoespaciada</option>
-      <option value="display">Display / impacto</option>
-    </select>
-
-    <label>Color de texto</label>
-    <input type="color" id="text_color" value="#ffffff" />
-
-    <label>Color de fondo</label>
-    <input type="color" id="bg_color" value="#000000" />
-    <div class="checkrow">
-      <input type="checkbox" id="transparent" />
-      <label style="margin:0">Fondo transparente (para OBS/vMix)</label>
-    </div>
-
-    <label>Tamaño de letra (<span id="size_val"></span>px)</label>
-    <input type="range" id="font_size" min="24" max="160" step="2" value="56" />
-
-    <div class="hint">Los ajustes se guardan en este navegador y tambien se pueden cambiar
-      en vivo desde "Ventana de subtítulos" en el dashboard del expositor. Usá esta URL
-      como Browser Source en OBS/vMix para quemar los subtítulos en el stream.</div>
-  </div>
-
   <script src="/assets/captions-ws.js"></script>
   <script>
+    // Ventana puramente de display -- todo el control (sesion aparte, idioma,
+    // color, fondo, contorno) llega del servidor via /ws/captions, que lo
+    // manda el dashboard del operador. No tiene ajustes propios: asi funciona
+    // igual dentro de un navegador normal que dentro del Browser Source de
+    // OBS (que corre un Chromium embebido aparte -- un BroadcastChannel o
+    // localStorage del navegador normal nunca le llegaria).
     const params = new URLSearchParams(location.search);
-    const $ = (id) => document.getElementById(id);
-    const stage = $('stage');
-    const captionEl = $('caption');
+    const sessionId = params.get('session');
+    const stage = document.getElementById('stage');
+    const captionEl = document.getElementById('caption');
 
-    const STORAGE_KEY = 'overlay_settings_v1';
     const FONT_STACKS = {
       system: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       serif: 'Georgia, "Times New Roman", serif',
@@ -127,95 +58,46 @@
       display: 'Impact, "Arial Black", sans-serif',
     };
 
-    function loadSettings() {
-      let saved = {};
-      try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch (e) {}
-      return {
-        session_id: params.get('session') || saved.session_id || '',
-        lang: params.get('lang') || saved.lang || 'es',
-        font_family: saved.font_family || 'system',
-        text_color: saved.text_color || '#ffffff',
-        bg_color: saved.bg_color || '#000000',
-        transparent: saved.transparent ?? false,
-        font_size: saved.font_size || 56,
-      };
+    let style = null;
+    let lastCaption = null;
+
+    function applyStyle() {
+      if (!style) return;
+      captionEl.style.fontFamily = FONT_STACKS[style.font_family] || FONT_STACKS.system;
+      captionEl.style.color = style.text_color;
+      captionEl.style.fontSize = style.font_size + 'px';
+      captionEl.style.webkitTextStroke = style.outline_enabled ? `2px ${style.outline_color}` : '';
+
+      document.body.style.background = style.bg_mode === 'solid' ? style.bg_color : 'transparent';
+      captionEl.style.background = style.bg_mode === 'behind_text' ? style.bg_color : 'transparent';
     }
 
-    function saveSettings(s) {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (e) {}
+    function renderCaption() {
+      if (!lastCaption || !style) return;
+      const lang = style.lang;
+      const text = lang === 'original' ? lastCaption.original : (lastCaption.translations[lang] || lastCaption.original);
+      captionEl.textContent = text;
     }
 
-    function applySettings(s) {
-      $('session_id').value = s.session_id;
-      $('lang').value = s.lang;
-      $('font_family').value = s.font_family;
-      $('text_color').value = s.text_color;
-      $('bg_color').value = s.bg_color;
-      $('transparent').checked = s.transparent;
-      $('font_size').value = s.font_size;
-      $('size_val').textContent = s.font_size;
-
-      captionEl.style.fontFamily = FONT_STACKS[s.font_family] || FONT_STACKS.system;
-      captionEl.style.color = s.text_color;
-      captionEl.style.fontSize = s.font_size + 'px';
-      document.body.style.background = s.transparent ? 'transparent' : s.bg_color;
-      stage.style.background = 'transparent';
-    }
-
-    function currentSettings() {
-      return {
-        session_id: $('session_id').value.trim(),
-        lang: $('lang').value,
-        font_family: $('font_family').value,
-        text_color: $('text_color').value,
-        bg_color: $('bg_color').value,
-        transparent: $('transparent').checked,
-        font_size: Number($('font_size').value),
-      };
-    }
-
-    let settings = loadSettings();
-    applySettings(settings);
-
-    let captionsHandle = null;
     function connect() {
-      if (captionsHandle) captionsHandle.stop();
-      const sessionId = settings.session_id;
-      if (!sessionId) return;
-      captionsHandle = connectCaptions(sessionId, (data) => {
-        const lang = settings.lang;
-        const text = lang === 'original' ? data.original : (data.translations[lang] || data.original);
-        captionEl.textContent = text;
+      if (!sessionId) {
+        captionEl.textContent = 'Falta ?session=ID en la URL';
+        return;
+      }
+      connectCaptions(sessionId, (data) => {
+        if (data.type === 'overlay_style') {
+          style = data;
+          applyStyle();
+          renderCaption();
+        } else if (data.type === 'caption') {
+          lastCaption = data;
+          renderCaption();
+        }
       }, (status) => {
-        if (status === 'connected') captionEl.textContent = '';
+        if (status === 'connected' && !lastCaption) captionEl.textContent = '';
       });
     }
     connect();
-
-    function onSettingsChanged() {
-      settings = currentSettings();
-      applySettings(settings);
-      saveSettings(settings);
-    }
-
-    ['font_family', 'text_color', 'bg_color', 'transparent', 'font_size'].forEach(id => {
-      $(id).addEventListener('input', onSettingsChanged);
-    });
-    $('lang').addEventListener('change', onSettingsChanged);
-    $('session_id').addEventListener('change', () => { onSettingsChanged(); connect(); });
-
-    $('gear').addEventListener('click', () => $('panel').classList.toggle('open'));
-
-    // Recibe cambios de estilo en vivo desde el dashboard del expositor (sin
-    // tocar sesion/idioma, que son propios de esta ventana).
-    if ('BroadcastChannel' in window) {
-      const styleChannel = new BroadcastChannel('nc-overlay-style');
-      styleChannel.onmessage = (evt) => {
-        settings = { ...settings, ...evt.data };
-        applySettings(settings);
-        saveSettings(settings);
-      };
-    }
   </script>
 </body>
 </html>

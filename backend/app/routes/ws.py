@@ -6,6 +6,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from .. import engines
 from ..asr import FixedChunker, StreamBuffer
 from ..sessions import CaptionSegment, manager
+from ..translate import translate_text
 
 router = APIRouter()
 
@@ -22,6 +23,11 @@ def _pcm16_levels(data: bytes) -> tuple[float, int]:
     return rms, peak
 
 
+def _targets_for(lang: str) -> set[str]:
+    # Espanol para charlas en otros idiomas; ademas ingles cuando la charla es en espanol.
+    return {"en"} if lang == "es" else {"es"}
+
+
 async def _process_segment(session, seq: int, audio_f32) -> CaptionSegment | None:
     t0 = time.time()
     text, detected_lang = await engines.transcribe(
@@ -32,6 +38,16 @@ async def _process_segment(session, seq: int, audio_f32) -> CaptionSegment | Non
 
     lang = session.source_lang or detected_lang
     translations = {}
+    # Traduccion local (CTranslate2, sin API externa): best-effort igual --
+    # un idioma sin paquete de traduccion disponible no puede tirar abajo el
+    # subtitulo, se emite igual con el texto original y las traducciones que
+    # hayan salido.
+    for tgt in _targets_for(lang):
+        try:
+            translations[tgt] = await translate_text(text, lang, tgt, session.glossary)
+        except Exception as e:
+            session.monitor_stats["errors"] += 1
+            session.monitor_stats["last_error"] = f"traduccion a {tgt}: {e}"
 
     t1 = time.time()
     session.monitor_stats["last_latency_ms"] = round((t1 - t0) * 1000)
@@ -103,6 +119,10 @@ async def captions(ws: WebSocket, session_id: str):
         return
 
     session.audience_ws.add(ws)
+    # Se mandan los dos -- cada pagina (overlay/audience) filtra por "type" y
+    # se queda con el suyo, asi no hace falta que el cliente diga quien es.
+    await ws.send_json(manager.style_payload(session, "overlay"))
+    await ws.send_json(manager.style_payload(session, "audience"))
     try:
         while True:
             await ws.receive_text()  # solo mantiene viva la conexion

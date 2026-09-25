@@ -4,99 +4,154 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Subtítulos — N.E.R.E</title>
-  <link rel="stylesheet" href="/assets/desktop.css" />
+  <style>
+    :root {
+      --bg: #000000;
+      --fg: #ffffff;
+      --panel-bg: #16181d;
+      --panel-border: #2a2d34;
+      --accent: #2c6e49;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #0b0c0f;
+      color: #eee;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #topbar {
+      flex: 0 0 auto;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px 12px;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--panel-border);
+    }
+    #topbar .field {
+      flex: 1 1 140px;
+      min-width: 110px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    #topbar label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9aa1af;
+    }
+    #topbar select {
+      width: 100%;
+      padding: 8px;
+      font-size: 14px;
+      background: #0b0c0f;
+      color: #eee;
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+    }
+
+    #stage {
+      flex: 1 1 auto;
+      min-height: 0;
+      background: var(--bg);
+      display: flex;
+    }
+    #caption {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      padding: 16px;
+      text-align: left;
+      line-height: 1.5;
+      color: var(--fg);
+    }
+    #caption.muted { color: #6b7280; display: flex; align-items: center; justify-content: center; text-align: center; }
+    #caption .caption-line { padding: 0.2em 0; }
+    #caption .caption-line:last-child { font-weight: 700; }
+  </style>
 </head>
 <body>
-  <canvas id="dither-bg"></canvas>
-
-  <div class="mac-menubar">
-    <div class="apple-logo">🍎</div>
-    <div class="mac-menu">
-      <div class="mac-menu-label">Archivo</div>
-      <div class="mac-menu-dropdown">
-        <a class="mac-menu-item" href="/">Inicio</a>
-        <a class="mac-menu-item" href="/monitor">Monitoreo</a>
-      </div>
+  <div id="topbar">
+    <div class="field">
+      <label for="session_select">Charla</label>
+      <select id="session_select"></select>
     </div>
-    <div class="mac-menu">
-      <div class="mac-menu-label">Ventanas</div>
-      <div class="mac-menu-dropdown" id="windows-menu"></div>
+    <div class="field">
+      <label for="lang_select">Idioma</label>
+      <select id="lang_select">
+        <option value="es">Español</option>
+        <option value="en">Inglés</option>
+        <option value="original">Original (sin traducir)</option>
+      </select>
     </div>
-    <div class="mac-clock"></div>
-  </div>
-
-  <div class="desktop">
-    <div class="mac-window" data-win-id="about" data-win-title="Acerca de" data-win-x="160" data-win-y="70" data-win-w="300" data-win-h="210" data-win-start-hidden>
-      <div class="mac-titlebar">
-        <div class="mac-close"></div>
-        <div class="mac-titlebar-title">Acerca de N.E.R.E</div>
-        <div class="mac-zoom"></div>
-      </div>
-      <div class="mac-body">
-        <div class="about-icon">🎙️</div>
-        <p style="text-align:center;font-weight:700;margin:4px 0">N.E.R.E</p>
-        <p class="muted" style="text-align:center">Núcleo de Escucha y Reconocimiento en Eventos<br>Transcripción y traducción en vivo, open source. v0.1</p>
-      </div>
-    </div>
-
-    <div class="mac-window" data-win-id="controls" data-win-title="Vista de audiencia" data-win-x="24" data-win-y="20" data-win-w="460" data-win-h="150" data-win-min-w="360" data-win-min-h="130">
-      <div class="mac-titlebar">
-        <div class="mac-close"></div>
-        <div class="mac-titlebar-title">Vista de audiencia</div>
-        <div class="mac-zoom"></div>
-      </div>
-      <div class="mac-body">
-        <div class="row">
-          <div>
-            <label>Charla</label>
-            <select id="session_select"></select>
-          </div>
-          <div>
-            <label>Idioma de subtítulos</label>
-            <select id="lang_select">
-              <option value="es">Español</option>
-              <option value="en">Inglés</option>
-              <option value="original">Original (sin traducir)</option>
-            </select>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="mac-window" data-win-id="caption" data-win-title="Subtítulos en vivo" data-win-x="24" data-win-y="190" data-win-w="700" data-win-h="240" data-win-min-w="320" data-win-min-h="140">
-      <div class="mac-titlebar">
-        <div class="mac-close"></div>
-        <div class="mac-titlebar-title">Subtítulos en vivo</div>
-        <div class="mac-zoom"></div>
-      </div>
-      <div class="mac-body">
-        <div id="caption" class="caption-box muted">Elegí una charla para ver los subtítulos.</div>
-      </div>
-    </div>
-
-    <div class="mac-window" data-win-id="history" data-win-title="Historial" data-win-x="500" data-win-y="20" data-win-w="360" data-win-h="410" data-win-min-w="240" data-win-min-h="140">
-      <div class="mac-titlebar">
-        <div class="mac-close"></div>
-        <div class="mac-titlebar-title">Historial</div>
-        <div class="mac-zoom"></div>
-      </div>
-      <div class="mac-body">
-        <div id="history" class="caption-history"></div>
-      </div>
+    <div class="field">
+      <label for="font_select">Fuente</label>
+      <select id="font_select">
+        <option value="system">Sans (sistema)</option>
+        <option value="serif">Serif</option>
+        <option value="monospace">Monoespaciada</option>
+        <option value="display">Display / impacto</option>
+        <option value="dyslexic">Legible (OpenDyslexic-like)</option>
+      </select>
     </div>
   </div>
 
-  <script src="/assets/dither-bg.js"></script>
-  <script src="/assets/mac-wm.js"></script>
+  <div id="stage"><div id="caption" class="muted">Elegí una charla para ver los subtítulos.</div></div>
+
   <script src="/assets/captions-ws.js"></script>
   <script>
+    const FONT_STACKS = {
+      system: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      serif: 'Georgia, "Times New Roman", serif',
+      monospace: 'Menlo, Monaco, "Courier New", monospace',
+      display: 'Impact, "Arial Black", sans-serif',
+      // Sans humanista con letras bien diferenciadas -- ayuda a lectores con
+      // dislexia sin necesitar bajar una fuente aparte (OpenDyslexic real no
+      // esta instalada por defecto en casi ningun sistema).
+      dyslexic: 'Verdana, "Comic Sans MS", sans-serif',
+    };
+    const FONT_STORAGE_KEY = 'nere_audience_font_v1';
+
     const sessionSelect = document.getElementById('session_select');
     const langSelect = document.getElementById('lang_select');
+    const fontSelect = document.getElementById('font_select');
     const captionEl = document.getElementById('caption');
-    const historyEl = document.getElementById('history');
     let captionsHandle = null;
+    let currentStyle = null; // ultimo audience_style que mando el servidor
 
     const params = new URLSearchParams(location.search);
+
+    // ---------- Fuente: eleccion personal de quien lee, no del operador ----------
+    function applyFont() {
+      const saved = localStorage.getItem(FONT_STORAGE_KEY);
+      const family = saved || (currentStyle && currentStyle.font_family) || 'system';
+      fontSelect.value = family;
+      captionEl.style.fontFamily = FONT_STACKS[family] || FONT_STACKS.system;
+    }
+    fontSelect.addEventListener('change', () => {
+      try { localStorage.setItem(FONT_STORAGE_KEY, fontSelect.value); } catch (e) {}
+      applyFont();
+    });
+
+    // ---------- Estilo que manda el operador (color, fondo, tamaño, contorno) ----------
+    function applyStyle(s) {
+      currentStyle = s;
+      applyFont();
+      captionEl.style.color = s.text_color;
+      captionEl.style.fontSize = s.font_size + 'px';
+      captionEl.style.webkitTextStroke = s.outline_enabled ? `1px ${s.outline_color}` : '';
+      const stage = document.getElementById('stage');
+      stage.style.background = s.bg_mode === 'solid' ? s.bg_color : '#0b0c0f';
+      captionEl.style.background = s.bg_mode === 'behind_text' ? s.bg_color : 'transparent';
+    }
 
     async function loadSessions() {
       const res = await fetch('/api/sessions');
@@ -112,16 +167,20 @@
       }
     }
 
-    function renderCaption(data) {
+    const MAX_LINES = 300; // tope para no acumular infinito en una charla larga
+
+    function appendCaption(data) {
       const lang = langSelect.value;
       const text = lang === 'original' ? data.original : (data.translations[lang] || data.original);
-      captionEl.textContent = text;
+      if (!captionEl.querySelector('.caption-line')) captionEl.textContent = ''; // saca "Esperando audio..."
       captionEl.classList.remove('muted');
 
       const div = document.createElement('div');
-      div.textContent = `#${data.seq}  ${text}`;
-      historyEl.prepend(div);
-      while (historyEl.children.length > 50) historyEl.removeChild(historyEl.lastChild);
+      div.className = 'caption-line';
+      div.textContent = `- ${text}`;
+      captionEl.appendChild(div);
+      while (captionEl.children.length > MAX_LINES) captionEl.removeChild(captionEl.firstChild);
+      captionEl.scrollTop = captionEl.scrollHeight; // siempre mostrar la linea nueva, historial arriba
     }
 
     function connect() {
@@ -129,11 +188,15 @@
       const sessionId = sessionSelect.value;
       if (!sessionId) return;
       captionEl.classList.add('muted');
-      captionsHandle = connectCaptions(sessionId, renderCaption, (status) => {
-        if (status === 'connected') {
+      captionEl.textContent = '';
+      captionsHandle = connectCaptions(sessionId, (data) => {
+        if (data.type === 'audience_style') applyStyle(data);
+        else if (data.type === 'caption') appendCaption(data);
+      }, (status) => {
+        if (status === 'connected' && !captionEl.children.length) {
           captionEl.textContent = 'Conectado. Esperando audio...';
-        } else {
-          captionEl.textContent = 'Desconectado, reintentando...';
+        } else if (status !== 'connected') {
+          captionEl.classList.add('muted');
         }
       });
     }
@@ -146,8 +209,6 @@
       if (sessionSelect.value) connect();
       setInterval(loadSessions, 8000);
     })();
-
-    MacWM.initFromDOM();
   </script>
 </body>
 </html>

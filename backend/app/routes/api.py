@@ -168,6 +168,51 @@ async def delete_session(session_id: str):
     return {"ok": True}
 
 
+class StyleUpdate(BaseModel):
+    lang: Optional[str] = None
+    font_family: Optional[str] = None
+    text_color: Optional[str] = None
+    font_size: Optional[int] = None
+    bg_mode: Optional[str] = None
+    bg_color: Optional[str] = None
+    outline_enabled: Optional[bool] = None
+    outline_color: Optional[str] = None
+
+
+BG_MODES = ["transparent", "solid", "behind_text"]
+STYLE_TARGETS = ["overlay", "audience"]
+STYLE_FIELDS = ("lang", "font_family", "text_color", "font_size", "bg_mode", "bg_color", "outline_enabled", "outline_color")
+
+
+@router.get("/sessions/{session_id}/style/{target}")
+async def get_style(session_id: str, target: str):
+    if target not in STYLE_TARGETS:
+        raise HTTPException(400, f"target debe ser uno de: {', '.join(STYLE_TARGETS)}")
+    s = manager.get(session_id)
+    if not s:
+        raise HTTPException(404, "session not found")
+    return manager.style_payload(s, target)
+
+
+@router.post("/sessions/{session_id}/style/{target}")
+async def update_style(session_id: str, target: str, body: StyleUpdate):
+    if target not in STYLE_TARGETS:
+        raise HTTPException(400, f"target debe ser uno de: {', '.join(STYLE_TARGETS)}")
+    s = manager.get(session_id)
+    if not s:
+        raise HTTPException(404, "session not found")
+    if body.bg_mode is not None and body.bg_mode not in BG_MODES:
+        raise HTTPException(400, f"bg_mode debe ser uno de: {', '.join(BG_MODES)}")
+
+    for field in STYLE_FIELDS:
+        value = getattr(body, field)
+        if value is not None:
+            s.styles[target][field] = value
+
+    await manager.broadcast_style(s, target)
+    return manager.style_payload(s, target)
+
+
 @router.get("/sessions/{session_id}/export")
 async def export_session(session_id: str, format: str = "srt", lang: str = "original"):
     s = manager.get(session_id)
