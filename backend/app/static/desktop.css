@@ -85,7 +85,16 @@ canvas#dither-bg {
 }
 .mac-menu-item:hover { background: var(--accent); color: var(--mac-white); }
 .mac-menu-sep { height: 1px; background: #555; margin: 4px 0; }
-.mac-menubar .apple-logo { padding: 0 10px; display: flex; align-items: center; font-size: 13px; }
+.mac-menubar .apple-logo { padding: 0 10px; display: flex; align-items: center; font-size: 13px; cursor: default; }
+.menu-logo {
+  display: inline-block;
+  background: var(--mac-black);
+  color: var(--mac-white);
+  padding: 1px 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
 .mac-clock {
   margin-left: auto;
   padding: 0 12px;
@@ -115,6 +124,25 @@ canvas#dither-bg {
   min-height: 120px;
 }
 .mac-window[hidden] { display: none; }
+
+/* Modal de confirmacion: mismo look que una mac-window, pero fija/centrada,
+   sin drag ni resize (no la maneja MacWM, es un dialogo transitorio). */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.modal-backdrop[hidden] { display: none; }
+.modal-window {
+  position: static;
+  width: 320px;
+  height: auto;
+  min-height: 0;
+}
 
 .mac-titlebar {
   height: 24px;
@@ -218,6 +246,59 @@ input, select, textarea {
   border-radius: 0;
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Sliders: reset del look nativo del SO para que sigan la estetica pixel/mac
+   (cuadrado, borde negro grueso, sin sombras) en vez del control gris de Windows. */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  padding: 0;
+  border: none;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  background: var(--mac-white);
+  border: 2px solid var(--mac-black);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  background: var(--accent);
+  border: 2px solid var(--mac-black);
+  border-radius: 0;
+  cursor: pointer;
+}
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  background: var(--mac-white);
+  border: 2px solid var(--mac-black);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border: 2px solid var(--mac-black);
+  border-radius: 0;
+  cursor: pointer;
+}
+input[type="range"]:focus { outline: none; }
+input[type="range"]:focus::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Scrollbars: mismo criterio -- cuadradas, sin degrade, en vez de las nativas */
+.mac-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mac-black) var(--mac-gray);
+}
+.mac-body::-webkit-scrollbar { width: 14px; height: 14px; }
+.mac-body::-webkit-scrollbar-track { background: var(--mac-gray); border-left: 2px solid var(--mac-black); }
+.mac-body::-webkit-scrollbar-thumb { background: var(--mac-gray-dark); border: 2px solid var(--mac-black); }
+.mac-body::-webkit-scrollbar-thumb:hover { background: var(--mac-black); }
+.mac-body::-webkit-scrollbar-corner { background: var(--mac-gray); }
 
 button {
   font-family: inherit;
