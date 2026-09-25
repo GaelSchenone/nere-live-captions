@@ -89,6 +89,17 @@ async def _transcribe_cloud_whisper(audio_f32: np.ndarray, language: str | None)
     return text, detected_lang
 
 
+# Frases distintivas del prompt: si el modelo las devuelve tal cual (en vez de
+# transcribir), es que se lo "escapó" -- ecoa la instruccion en vez de seguirla.
+# Pasa con audio corto/ambiguo. Lo tratamos como si no hubiera habla.
+_PROMPT_ECHO_MARKERS = ("exactamente lo que se dice", "sin comentarios ni comillas")
+
+
+def _is_prompt_echo(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _PROMPT_ECHO_MARKERS)
+
+
 async def _transcribe_gemini_audio(audio_f32: np.ndarray, language: str | None) -> tuple[str, str]:
     if not settings.gemini_api_key:
         raise RuntimeError("Falta GEMINI_API_KEY para usar el motor gemini_audio")
@@ -111,4 +122,6 @@ async def _transcribe_gemini_audio(audio_f32: np.ndarray, language: str | None) 
         config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=500),
     )
     text = (response.text or "").strip()
+    if _is_prompt_echo(text):
+        text = ""
     return text, language or "?"
