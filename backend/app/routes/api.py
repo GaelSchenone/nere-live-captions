@@ -7,9 +7,16 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from ..asr import DEFAULT_WHISPER_PRESET, DEFAULT_WHISPERCPP_PRESET, WHISPER_PRESETS, WHISPERCPP_PRESETS
+from ..asr import (
+    DEFAULT_WHISPER_PRESET,
+    DEFAULT_WHISPERCPP_PRESET,
+    WHISPER_PRESETS,
+    WHISPERCPP_PRESETS,
+    whisper_preset_downloaded,
+    whispercpp_preset_downloaded,
+)
 from ..config import settings
-from ..engines import ENGINES
+from ..engines import DEFAULT_ENGINE, ENGINE_LABELS, ENGINES, engine_available
 from ..export import export_srt, export_txt, export_vtt
 from ..sessions import manager
 
@@ -34,16 +41,32 @@ def _vad_settings_dict():
     }
 
 
+@router.get("/engines")
+async def get_engines():
+    return {
+        "default": DEFAULT_ENGINE,
+        "engines": [
+            {"key": key, "label": ENGINE_LABELS[key], "available": engine_available(key)} for key in ENGINES
+        ],
+    }
+
+
 @router.get("/whisper-presets")
 async def get_whisper_presets():
     return {
         "local_whisper": {
             "default": DEFAULT_WHISPER_PRESET,
-            "presets": [{"key": key, "label": p["label"]} for key, p in WHISPER_PRESETS.items()],
+            "presets": [
+                {"key": key, "label": p["label"], "downloaded": whisper_preset_downloaded(key)}
+                for key, p in WHISPER_PRESETS.items()
+            ],
         },
         "whispercpp": {
             "default": DEFAULT_WHISPERCPP_PRESET,
-            "presets": [{"key": key, "label": p["label"]} for key, p in WHISPERCPP_PRESETS.items()],
+            "presets": [
+                {"key": key, "label": p["label"], "downloaded": whispercpp_preset_downloaded(key)}
+                for key, p in WHISPERCPP_PRESETS.items()
+            ],
         },
     }
 

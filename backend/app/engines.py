@@ -9,11 +9,35 @@ from .config import settings
 ENGINES = ["local_whisper", "whispercpp", "cloud_whisper", "gemini_audio", "gemini_live"]
 DEFAULT_ENGINE = settings.default_engine if settings.default_engine in ENGINES else "local_whisper"
 
+ENGINE_LABELS = {
+    "local_whisper": "Whisper local (faster-whisper)",
+    "whispercpp": "Whisper local (whisper.cpp)",
+    "cloud_whisper": "Whisper en la nube (OpenAI)",
+    "gemini_audio": "Gemini (audio directo)",
+    "gemini_live": "Gemini Live (streaming, baja latencia)",
+}
+
 LANG_NAMES = {
     "es": "español",
     "en": "inglés",
     "pt": "portugués",
 }
+
+
+def engine_available(engine: str) -> bool:
+    """Si un motor no tiene nada usable ahora mismo (sin modelo descargado,
+    sin API key configurada), no tiene sentido mostrarlo como opcion -- evita
+    que alguien elija un motor que va a fallar o tardar minutos en el primer
+    segmento de un evento real."""
+    if engine == "local_whisper":
+        return any(asr.whisper_preset_downloaded(k) for k in asr.WHISPER_PRESETS)
+    if engine == "whispercpp":
+        return any(asr.whispercpp_preset_downloaded(k) for k in asr.WHISPERCPP_PRESETS)
+    if engine == "cloud_whisper":
+        return bool(settings.openai_api_key)
+    if engine in ("gemini_audio", "gemini_live"):
+        return bool(settings.gemini_api_key)
+    return False
 
 _gemini_client: genai.Client | None = None
 

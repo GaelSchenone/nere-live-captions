@@ -93,6 +93,33 @@ DEFAULT_WHISPERCPP_PRESET = (
     settings.default_whispercpp_preset if settings.default_whispercpp_preset in WHISPERCPP_PRESETS else "wcpp_medio"
 )
 
+
+def whisper_preset_downloaded(preset_key: str) -> bool:
+    """Chequea si el modelo de faster-whisper ya esta en el cache de
+    HuggingFace, SIN dispararle una descarga (a diferencia de crear el
+    modelo). Sirve para no mostrar en la UI un preset que tardaria varios
+    minutos en la primera transcripcion real de un evento."""
+    from faster_whisper.utils import _MODELS as _FASTER_WHISPER_REPOS
+    from huggingface_hub import try_to_load_from_cache
+
+    preset = WHISPER_PRESETS.get(preset_key)
+    if not preset:
+        return False
+    repo = _FASTER_WHISPER_REPOS.get(preset["model"])
+    if not repo:
+        return False
+    return try_to_load_from_cache(repo, "model.bin") is not None
+
+
+def whispercpp_preset_downloaded(preset_key: str) -> bool:
+    """Mismo chequeo que arriba pero para el modelo ggml de whisper.cpp."""
+    from pywhispercpp import constants as pwc
+
+    preset = WHISPERCPP_PRESETS.get(preset_key)
+    if not preset:
+        return False
+    return (pwc.MODELS_DIR / f"ggml-{preset['model']}.bin").exists()
+
 SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_BYTES = int(SAMPLE_RATE * FRAME_MS / 1000) * 2  # 16-bit mono PCM

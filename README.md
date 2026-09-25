@@ -90,7 +90,12 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# GEMINI_API_KEY en .env solo hace falta si vas a usar el motor gemini_audio
+# GEMINI_API_KEY en .env hace falta para el motor default (gemini_live) y para gemini_audio
+
+# Opcional: instalación/precalentamiento -- descarga antes del evento los paquetes de
+# traducción y/o los modelos de Whisper que quieras tener listos, para no depender de
+# descargarlos en medio de una charla real. Todo es interactivo y opcional.
+python install_models.py
 
 uvicorn app.main:app --reload --port 8000
 ```
@@ -99,8 +104,17 @@ Abrí `http://localhost:8000`, creá una sesión, y desde otra pestaña/disposit
 `/operator?session=<id>` para empezar a transmitir audio, y `/audience?session=<id>`
 para ver los subtítulos.
 
-La primera vez que se usa un perfil, `faster-whisper` descarga el modelo correspondiente
-(ver [Perfiles de Whisper local](#perfiles-de-whisper-local-cpugpu) abajo).
+El combo de "Motor de transcripción" (y el de perfil de Whisper) solo muestra las
+opciones que ya están listas para usarse ahora mismo: un motor en la nube aparece si
+tiene su API key configurada en `.env`, y un perfil de Whisper local aparece si su
+modelo ya está descargado (por `install_models.py` o por un uso anterior). Así nadie
+elige por error algo que tardaría minutos en la primera transcripción de un evento real.
+Si no descargaste/configuraste nada todavía, el motor de faster-whisper no va a
+aparecer -- corré `python install_models.py` o completá una API key en `.env`, y
+recargá la página.
+
+La primera vez que se usa un perfil que no precalentaste, `faster-whisper` descarga el
+modelo correspondiente (ver [Perfiles de Whisper local](#perfiles-de-whisper-local-cpugpu) abajo).
 
 > Las sesiones viven en memoria (no en una base de datos): si el proceso se reinicia (por
 > ejemplo, `--reload` detectando un cambio de código mientras hay algo corriendo) se pierden.

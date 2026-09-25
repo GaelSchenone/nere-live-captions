@@ -72,13 +72,12 @@
         <div class="row">
           <div>
             <label for="engine">Motor de transcripción</label>
-            <select id="engine">
-              <option value="local_whisper">Whisper local (faster-whisper)</option>
-              <option value="whispercpp">Whisper local (whisper.cpp)</option>
-              <option value="cloud_whisper">Whisper en la nube (OpenAI)</option>
-              <option value="gemini_audio">Gemini (audio directo)</option>
-              <option value="gemini_live">Gemini Live (streaming, baja latencia)</option>
-            </select>
+            <select id="engine"><option value="">Cargando...</option></select>
+            <p id="engine_hint" class="muted" style="margin-top:4px;display:none">
+              Algunos motores no aparecen porque no tienen modelo descargado ni API key
+              configurada. Corré <code>python install_models.py</code> o revisá tu
+              <code>.env</code> para habilitarlos.
+            </p>
           </div>
           <div>
             <label for="chunking">Corte de audio</label>
@@ -154,12 +153,13 @@
     }
 
     const engineSelect = document.getElementById('engine');
+    const engineHint = document.getElementById('engine_hint');
     const whisperPresetRow = document.getElementById('whisper_preset_row');
     const whisperPresetSelect = document.getElementById('whisper_preset');
 
     let whisperPresetsData = null;
     const optgroup = (label, presets) =>
-      `<optgroup label="${label}">${presets.map(p => `<option value="${p.key}">${p.label}</option>`).join('')}</optgroup>`;
+      presets.length ? `<optgroup label="${label}">${presets.map(p => `<option value="${p.key}">${p.label}</option>`).join('')}</optgroup>` : '';
 
     function updateWhisperPresetVisibility() {
       const engine = engineSelect.value;
@@ -167,19 +167,36 @@
       if (!whisperPresetsData) return;
       if (engine === 'whispercpp') {
         const d = whisperPresetsData.whispercpp;
-        whisperPresetSelect.innerHTML = d.presets.map(p => `<option value="${p.key}">${p.label}</option>`).join('');
-        whisperPresetSelect.value = d.default;
+        const downloaded = d.presets.filter(p => p.downloaded);
+        whisperPresetSelect.innerHTML = downloaded.map(p => `<option value="${p.key}">${p.label}</option>`).join('');
+        whisperPresetSelect.value = downloaded.some(p => p.key === d.default) ? d.default : (downloaded[0]?.key || '');
       } else if (engine === 'local_whisper') {
         const d = whisperPresetsData.local_whisper;
-        const cpuPresets = d.presets.filter(p => p.key.startsWith('cpu_'));
-        const gpuPresets = d.presets.filter(p => p.key.startsWith('gpu_'));
+        const downloaded = d.presets.filter(p => p.downloaded);
+        const cpuPresets = downloaded.filter(p => p.key.startsWith('cpu_'));
+        const gpuPresets = downloaded.filter(p => p.key.startsWith('gpu_'));
         whisperPresetSelect.innerHTML =
           optgroup('CPU (cualquier máquina, ej. MacBook sin GPU)', cpuPresets) +
           optgroup('GPU NVIDIA (requiere GPU en la máquina que corre el backend)', gpuPresets);
-        whisperPresetSelect.value = d.default;
+        whisperPresetSelect.value = downloaded.some(p => p.key === d.default) ? d.default : (downloaded[0]?.key || '');
       }
     }
     engineSelect.addEventListener('change', updateWhisperPresetVisibility);
+
+    async function loadEngines() {
+      const res = await fetch('/api/engines');
+      const data = await res.json();
+      const available = data.engines.filter(e => e.available);
+      if (!available.length) {
+        engineSelect.innerHTML = '<option value="">Ningún motor disponible</option>';
+        engineHint.style.display = '';
+        return;
+      }
+      engineSelect.innerHTML = available.map(e => `<option value="${e.key}">${e.label}</option>`).join('');
+      engineSelect.value = available.some(e => e.key === data.default) ? data.default : available[0].key;
+      engineHint.style.display = available.length < data.engines.length ? '' : 'none';
+      updateWhisperPresetVisibility();
+    }
 
     async function loadWhisperPresets() {
       const res = await fetch('/api/whisper-presets');
@@ -220,6 +237,7 @@
 
     MacWM.initFromDOM();
     loadSessions();
+    loadEngines();
     loadWhisperPresets();
     setInterval(loadSessions, 5000);
   </script>

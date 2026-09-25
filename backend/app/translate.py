@@ -29,6 +29,22 @@ _executor = ThreadPoolExecutor(max_workers=2)
 _backends: dict[tuple[str, str], object] = {}
 
 
+def package_downloaded(pair: tuple[str, str]) -> bool:
+    """Chequea si el paquete de traduccion ya esta descargado, sin dispararle
+    una descarga -- mismo criterio que usa _download_and_extract para decidir
+    si hace falta bajarlo."""
+    if pair not in PACKAGE_URLS:
+        return False
+    dest = MODELS_DIR / f"{pair[0]}_{pair[1]}"
+    return dest.exists() and any(dest.iterdir())
+
+
+def ensure_package(pair: tuple[str, str]) -> Path:
+    """Wrapper publico de _download_and_extract, para usar desde el script
+    de instalacion/precalentamiento sin tocar el nombre privado del modulo."""
+    return _download_and_extract(pair)
+
+
 def _download_and_extract(pair: tuple[str, str]) -> Path:
     src, tgt = pair
     url = PACKAGE_URLS.get(pair)
