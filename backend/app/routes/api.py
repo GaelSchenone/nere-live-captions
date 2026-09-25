@@ -1,0 +1,163 @@
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
+from pydantic import BaseModel
+
+from ..config import settings
+from ..engines import ENGINES
+from ..export import export_srt, export_txt, export_vtt
+from ..sessions import manager
+
+router = APIRouter(prefix="/api")
+
+CHUNKING_MODES = ["vad", "fixed"]
+
+
+class VadSettingsUpdate(BaseModel):
+    vad_aggressiveness: Optional[int] = None
+    vad_silence_ms: Optional[int] = None
+    vad_max_buffer_seconds: Optional[float] = None
+    vad_min_speech_ms: Optional[int] = None
+
+
+def _vad_settings_dict():
+    return {
+        "vad_aggressiveness": settings.vad_aggressiveness,
+        "vad_silence_ms": settings.vad_silence_ms,
+        "vad_max_buffer_seconds": settings.vad_max_buffer_seconds,
+        "vad_min_speech_ms": settings.vad_min_speech_ms,
+    }
+
+
+@router.get("/vad-settings")
+async def get_vad_settings():
+    return _vad_settings_dict()
+
+
+@router.post("/vad-settings")
+async def update_vad_settings(body: VadSettingsUpdate):
+    # Cambia la config en memoria del proceso (no se escribe al .env). Las
+    # sesiones que ya estan corriendo siguen con los valores que tenian; las
+    # sesiones nuevas que se creen de aca en mas usan estos.
+    if body.vad_aggressiveness is not None:
+        if body.vad_aggressiveness not in (0, 1, 2, 3):
+            raise HTTPException(400, "vad_aggressiveness debe ser 0, 1, 2 o 3")
+        settings.vad_aggressiveness = body.vad_aggressiveness
+    if body.vad_silence_ms is not None:
+        if body.vad_silence_ms <= 0:
+            raise HTTPException(400, "vad_silence_ms debe ser mayor a 0")
+        settings.vad_silence_ms = body.vad_silence_ms
+    if body.vad_max_buffer_seconds is not None:
+        if body.vad_max_buffer_seconds <= 0:
+            raise HTTPException(400, "vad_max_buffer_seconds debe ser mayor a 0")
+        settings.vad_max_buffer_seconds = body.vad_max_buffer_seconds
+    if body.vad_min_speech_ms is not None:
+        if body.vad_min_speech_ms < 0:
+            raise HTTPException(400, "vad_min_speech_ms debe ser 0 o mayor")
+        settings.vad_min_speech_ms = body.vad_min_speech_ms
+    return _vad_settings_dict()
+
+
+class CreateSessionRequest(BaseModel):
+    name: str
+    source_lang: Optional[str] = None
+    glossary: Optional[list[str]] = None
+    session_id: Optional[str] = None
+    engine: Optional[str] = None
+    chunking: Optional[str] = None
+
+
+@router.post("/sessions")
+async def create_session(req: CreateSessionRequest):
+    if req.engine and req.engine not in ENGINES:
+        raise HTTPException(400, f"engine debe ser uno de: {', '.join(ENGINES)}")
+    if req.chunking and req.chunking not in CHUNKING_MODES:
+        raise HTTPException(400, f"chunking debe ser uno de: {', '.join(CHUNKING_MODES)}")
+    try:
+        session = await manager.create(
+            req.name, req.source_lang, req.glossary, req.session_id, req.engine, req.chunking
+        )
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return {
+        "id": session.id,
+        "name": session.name,
+        "source_lang": session.source_lang,
+        "engine": session.engine,
+        "chunking": session.chunking,
+    }
+
+
+@router.get("/sessions")
+async def list_sessions():
+    return [
+        {
+            "id": s.id,
+            "name": s.name,
+            "status": s.status,
+            "source_lang": s.source_lang,
+            "engine": s.engine,
+            "chunking": s.chunking,
+            "created_at": s.created_at,
+            "stats": s.monitor_stats,
+            "audience_count": len(s.audience_ws),
+            "segment_count": len(s.segments),
+        }
+        for s in manager.list()
+    ]
+
+
+@router.get("/sessions/{session_id}")
+async def get_session(session_id: str):
+    s = manager.get(session_id)
+    if not s:
+        raise HTTPException(404, "session not found")
+    return {
+        "id": s.id,
+        "name": s.name,
+        "status": s.status,
+        "source_lang": s.source_lang,
+        "engine": s.engine,
+        "chunking": s.chunking,
+        "stats": s.monitor_stats,
+        "segment_count": len(s.segments),
+    }
+
+
+@router.post("/sessions/{session_id}/end")
+async def end_session(session_id: str):
+    s = manager.get(session_id)
+    if not s:
+        raise HTTPException(404, "session not found")
+    s.status = "ended"
+    return {"ok": True}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    if not manager.remove(session_id):
+        raise HTTPException(404, "session not found")
+    return {"ok": True}
+
+
+@router.get("/sessions/{session_id}/export")
+async def export_session(session_id: str, format: str = "srt", lang: str = "original"):
+    s = manager.get(session_id)
+    if not s:
+        raise HTTPException(404, "session not found")
+
+    if format == "srt":
+        content, media = export_srt(s, lang), "application/x-subrip"
+    elif format == "vtt":
+        content, media = export_vtt(s, lang), "text/vtt"
+    elif format == "txt":
+        content, media = export_txt(s, lang), "text/plain"
+    else:
+        raise HTTPException(400, "format debe ser srt, vtt o txt")
+
+    return Response(
+        content=content,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{session_id}_{lang}.{format}"'},
+    )

@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard del expositor — N.E.R.E</title>
+  <link rel="stylesheet" href="/assets/desktop.css" />
+</head>
+<body>
+  <canvas id="dither-bg"></canvas>
+
+  <div class="mac-menubar">
+    <div class="apple-logo">🍎</div>
+    <div class="mac-menu">
+      <div class="mac-menu-label">Archivo</div>
+      <div class="mac-menu-dropdown">
+        <a class="mac-menu-item" href="/">Inicio</a>
+        <a class="mac-menu-item" href="/monitor">Monitoreo</a>
+      </div>
+    </div>
+    <div class="mac-menu">
+      <div class="mac-menu-label">Ventanas</div>
+      <div class="mac-menu-dropdown" id="windows-menu"></div>
+    </div>
+    <div class="mac-clock"></div>
+  </div>
+
+  <div class="desktop">
+    <div class="mac-window" data-win-id="about" data-win-title="Acerca de" data-win-x="200" data-win-y="80" data-win-w="300" data-win-h="210" data-win-start-hidden>
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Acerca de N.E.R.E</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <div class="about-icon">🎙️</div>
+        <p style="text-align:center;font-weight:700;margin:4px 0">N.E.R.E</p>
+        <p class="muted" style="text-align:center">Núcleo de Escucha y Reconocimiento en Eventos<br>Transcripción y traducción en vivo, open source. v0.1</p>
+      </div>
+    </div>
+
+    <div class="mac-window" data-win-id="dashboard" data-win-title="Dashboard del expositor" data-win-x="24" data-win-y="20" data-win-w="620" data-win-h="230" data-win-min-w="420" data-win-min-h="200">
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Dashboard del expositor</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <div class="row">
+          <div>
+            <label>Sesión</label>
+            <input id="session_id" placeholder="id de sesión" />
+          </div>
+          <div>
+            <label>Estado</label>
+            <p><span id="dot" class="status-dot off"></span><span id="status_text">desconectado</span></p>
+          </div>
+        </div>
+        <div style="margin-top:0.5rem">
+          <button id="start">Iniciar captura de audio</button>
+          <button id="stop" class="danger" disabled>Detener</button>
+          <button id="open_overlay" class="secondary">Abrir ventana de subtítulos ↗</button>
+          <button id="copy_overlay" class="secondary">Copiar link para OBS 📋</button>
+        </div>
+        <p class="muted" style="margin-top:0.75rem">
+          Usá el mic de la PC, o ruteá el audio del sistema a un dispositivo de entrada
+          virtual para tomar el audio de OBS/vMix. Configurá el look de la ventana de
+          subtítulos en la ventana "Ventana de subtítulos" (menú Ventanas).
+        </p>
+      </div>
+    </div>
+
+    <div class="mac-window" data-win-id="overlay-style" data-win-title="Ventana de subtítulos" data-win-x="660" data-win-y="20" data-win-w="330" data-win-h="420" data-win-min-w="280" data-win-min-h="360">
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Ventana de subtítulos</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <p class="muted">Estos ajustes se aplican en vivo a cualquier ventana de subtítulos
+          (<code>/overlay</code>) que tengas abierta, sin tener que tocarla directamente.</p>
+
+        <label for="ov_font_family">Fuente</label>
+        <select id="ov_font_family">
+          <option value="system">Sans (sistema)</option>
+          <option value="serif">Serif</option>
+          <option value="monospace">Monoespaciada</option>
+          <option value="display">Display / impacto</option>
+        </select>
+
+        <label for="ov_text_color">Color de texto</label>
+        <input type="color" id="ov_text_color" value="#ffffff" />
+
+        <label for="ov_bg_color">Color de fondo</label>
+        <input type="color" id="ov_bg_color" value="#000000" />
+        <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+          <input type="checkbox" id="ov_transparent" style="width:auto" />
+          <label style="margin:0" for="ov_transparent">Fondo transparente (para OBS/vMix)</label>
+        </div>
+
+        <label for="ov_font_size">Tamaño de letra (<span id="ov_font_size_val"></span>px)</label>
+        <input type="range" id="ov_font_size" min="24" max="160" step="2" value="56" />
+      </div>
+    </div>
+
+    <div class="mac-window" data-win-id="spectrogram-win" data-win-title="Monitor de micrófono" data-win-x="24" data-win-y="270" data-win-w="620" data-win-h="290" data-win-min-w="360" data-win-min-h="230">
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Monitor de micrófono</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <label for="mic_select">Micrófono</label>
+        <select id="mic_select"><option value="">Cargando dispositivos...</option></select>
+        <canvas id="spectrogram" style="width:100%;height:140px;display:block;margin-top:8px;background:#000;border:1px solid var(--mac-black);"></canvas>
+        <p class="muted" style="margin-top:0.5rem">
+          Si no ves actividad acá cuando hablás, probá elegir otro micrófono arriba —
+          si el problema persiste es de permisos/volumen. Si sí ves actividad pero el
+          backend no genera subtítulos, mirá el <code>% detectado como voz</code> en
+          <a href="/monitor">/monitor</a> para afinar el VAD.
+        </p>
+      </div>
+    </div>
+
+    <div class="mac-window" data-win-id="vad-settings" data-win-title="Ajustes de detección de voz (VAD)" data-win-x="1000" data-win-y="20" data-win-w="330" data-win-h="420" data-win-min-w="280" data-win-min-h="340">
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Ajustes de detección de voz (VAD)</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <p class="muted">Se guardan en memoria del servidor: se aplican a las sesiones que
+          se creen de acá en más (las que ya están corriendo siguen igual). Se pierden si
+          reiniciás el proceso -- para que sean permanentes, pasalas al <code>.env</code>.</p>
+
+        <label for="vad_aggressiveness">Agresividad (0-3)</label>
+        <select id="vad_aggressiveness">
+          <option value="0">0 — más permisivo</option>
+          <option value="1">1</option>
+          <option value="2">2 — default</option>
+          <option value="3">3 — más estricto (recomendado con ruido/eco)</option>
+        </select>
+
+        <label for="vad_silence_ms">Silencio para cortar (<span id="vad_silence_ms_val"></span>ms)</label>
+        <input type="range" id="vad_silence_ms" min="100" max="1000" step="50" value="300" />
+
+        <label for="vad_max_buffer_seconds">Corte forzado (<span id="vad_max_buffer_seconds_val"></span>s)</label>
+        <input type="range" id="vad_max_buffer_seconds" min="2" max="12" step="0.5" value="6" />
+
+        <label for="vad_min_speech_ms">Duración mínima de segmento (<span id="vad_min_speech_ms_val"></span>ms)</label>
+        <input type="range" id="vad_min_speech_ms" min="0" max="1000" step="50" value="250" />
+
+        <div style="margin-top:12px">
+          <button id="vad_save">Guardar</button>
+        </div>
+        <div id="vad_save_result" class="muted" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div class="mac-window" data-win-id="transcript-log" data-win-title="Transcripción local (verificación)" data-win-x="660" data-win-y="460" data-win-w="330" data-win-h="220" data-win-min-w="260" data-win-min-h="140">
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Transcripción local (verificación)</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <div id="log" class="caption-history"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/dither-bg.js"></script>
+  <script src="/assets/mac-wm.js"></script>
+  <script src="/assets/captions-ws.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const sessionInput = document.getElementById('session_id');
+    if (params.get('session')) sessionInput.value = params.get('session');
+
+    const startBtn = document.getElementById('start');
+    const stopBtn = document.getElementById('stop');
+    const overlayBtn = document.getElementById('open_overlay');
+    const copyOverlayBtn = document.getElementById('copy_overlay');
+    const dot = document.getElementById('dot');
+    const statusText = document.getElementById('status_text');
+    const log = document.getElementById('log');
+
+    function overlayUrl(sessionId) {
+      return `${location.origin}/overlay?session=${sessionId}`;
+    }
+
+    overlayBtn.addEventListener('click', () => {
+      const sessionId = sessionInput.value.trim();
+      if (!sessionId) { alert('Poné el id de la sesión'); return; }
+      window.open(overlayUrl(sessionId), '_blank', 'width=1000,height=300');
+    });
+
+    async function copyToClipboard(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+
+    copyOverlayBtn.addEventListener('click', async () => {
+      const sessionId = sessionInput.value.trim();
+      if (!sessionId) { alert('Poné el id de la sesión'); return; }
+      const originalLabel = copyOverlayBtn.textContent;
+      try {
+        await copyToClipboard(overlayUrl(sessionId));
+        copyOverlayBtn.textContent = '¡Copiado! ✓';
+      } catch (e) {
+        copyOverlayBtn.textContent = 'No se pudo copiar';
+      }
+      setTimeout(() => { copyOverlayBtn.textContent = originalLabel; }, 1800);
+    });
+
+    // ---------- Config en vivo de la ventana de subtitulos ----------
+    const OVERLAY_STORAGE_KEY = 'overlay_settings_v1';
+    const overlayStyleChannel = ('BroadcastChannel' in window) ? new BroadcastChannel('nc-overlay-style') : null;
+
+    function mergeOverlaySettings(partial) {
+      let current = {};
+      try { current = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY) || '{}'); } catch (e) {}
+      const merged = { ...current, ...partial };
+      try { localStorage.setItem(OVERLAY_STORAGE_KEY, JSON.stringify(merged)); } catch (e) {}
+      return merged;
+    }
+
+    const ovFontFamily = document.getElementById('ov_font_family');
+    const ovTextColor = document.getElementById('ov_text_color');
+    const ovBgColor = document.getElementById('ov_bg_color');
+    const ovTransparent = document.getElementById('ov_transparent');
+    const ovFontSize = document.getElementById('ov_font_size');
+    const ovFontSizeVal = document.getElementById('ov_font_size_val');
+
+    (function loadOverlayControlsFromStorage() {
+      let saved = {};
+      try { saved = JSON.parse(localStorage.getItem(OVERLAY_STORAGE_KEY) || '{}'); } catch (e) {}
+      ovFontFamily.value = saved.font_family || 'system';
+      ovTextColor.value = saved.text_color || '#ffffff';
+      ovBgColor.value = saved.bg_color || '#000000';
+      ovTransparent.checked = !!saved.transparent;
+      ovFontSize.value = saved.font_size || 56;
+      ovFontSizeVal.textContent = ovFontSize.value;
+    })();
+
+    function pushOverlayStyle() {
+      const partial = {
+        font_family: ovFontFamily.value,
+        text_color: ovTextColor.value,
+        bg_color: ovBgColor.value,
+        transparent: ovTransparent.checked,
+        font_size: Number(ovFontSize.value),
+      };
+      ovFontSizeVal.textContent = partial.font_size;
+      mergeOverlaySettings(partial);
+      if (overlayStyleChannel) overlayStyleChannel.postMessage(partial);
+    }
+
+    [ovFontFamily, ovTextColor, ovBgColor, ovTransparent, ovFontSize].forEach((el) => {
+      el.addEventListener('input', pushOverlayStyle);
+    });
+
+    // ---------- Ajustes de VAD (en memoria del servidor, para sesiones futuras) ----------
+    const vadAggressiveness = document.getElementById('vad_aggressiveness');
+    const vadSilenceMs = document.getElementById('vad_silence_ms');
+    const vadSilenceMsVal = document.getElementById('vad_silence_ms_val');
+    const vadMaxBufferSeconds = document.getElementById('vad_max_buffer_seconds');
+    const vadMaxBufferSecondsVal = document.getElementById('vad_max_buffer_seconds_val');
+    const vadMinSpeechMs = document.getElementById('vad_min_speech_ms');
+    const vadMinSpeechMsVal = document.getElementById('vad_min_speech_ms_val');
+    const vadSaveBtn = document.getElementById('vad_save');
+    const vadSaveResult = document.getElementById('vad_save_result');
+
+    function updateVadRangeLabels() {
+      vadSilenceMsVal.textContent = vadSilenceMs.value;
+      vadMaxBufferSecondsVal.textContent = vadMaxBufferSeconds.value;
+      vadMinSpeechMsVal.textContent = vadMinSpeechMs.value;
+    }
+
+    async function loadVadSettings() {
+      const res = await fetch('/api/vad-settings');
+      const s = await res.json();
+      vadAggressiveness.value = s.vad_aggressiveness;
+      vadSilenceMs.value = s.vad_silence_ms;
+      vadMaxBufferSeconds.value = s.vad_max_buffer_seconds;
+      vadMinSpeechMs.value = s.vad_min_speech_ms;
+      updateVadRangeLabels();
+    }
+
+    [vadSilenceMs, vadMaxBufferSeconds, vadMinSpeechMs].forEach((el) => {
+      el.addEventListener('input', updateVadRangeLabels);
+    });
+
+    vadSaveBtn.addEventListener('click', async () => {
+      const body = {
+        vad_aggressiveness: Number(vadAggressiveness.value),
+        vad_silence_ms: Number(vadSilenceMs.value),
+        vad_max_buffer_seconds: Number(vadMaxBufferSeconds.value),
+        vad_min_speech_ms: Number(vadMinSpeechMs.value),
+      };
+      const res = await fetch('/api/vad-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        vadSaveResult.innerHTML = `<span style="color:var(--err)">Error: ${err.detail}</span>`;
+        return;
+      }
+      vadSaveResult.innerHTML = '<span style="color:var(--accent)">Guardado — se aplica a las próximas sesiones que crees.</span>';
+      setTimeout(() => { vadSaveResult.textContent = ''; }, 3000);
+    });
+
+    loadVadSettings();
+
+    // ---------- Captura y transmision de audio ----------
+    const TARGET_RATE = 16000;
+    let audioCtx, sourceNode, processorNode, mediaStream, ws;
+    let analyser, freqData, spectrogramRAF;
+    let captionsHandle = null;
+
+    const spectrogramCanvas = document.getElementById('spectrogram');
+    const spectrogramCtx = spectrogramCanvas.getContext('2d');
+
+    // ---------- Selector de microfono ----------
+    const micSelect = document.getElementById('mic_select');
+
+    async function populateMicList() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const mics = devices.filter((d) => d.kind === 'audioinput');
+        const current = micSelect.value;
+        if (!mics.length) {
+          micSelect.innerHTML = '<option value="">No se encontraron micrófonos</option>';
+          return;
+        }
+        micSelect.innerHTML = mics.map((d, i) =>
+          `<option value="${d.deviceId}">${d.label || 'Micrófono ' + (i + 1)}</option>`
+        ).join('');
+        if (current && mics.some((d) => d.deviceId === current)) micSelect.value = current;
+      } catch (e) {
+        micSelect.innerHTML = '<option value="">No se pudo listar dispositivos</option>';
+      }
+    }
+
+    // pedimos permiso una vez al cargar para que aparezcan los nombres reales
+    // de los dispositivos (sin permiso, enumerateDevices devuelve labels vacios)
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((stream) => {
+        stream.getTracks().forEach((t) => t.stop());
+        populateMicList();
+      })
+      .catch(() => populateMicList());
+
+    if (navigator.mediaDevices.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', populateMicList);
+    }
+
+    function colorForValue(v) {
+      const t = v / 255;
+      const r = Math.round(255 * Math.min(1, Math.max(0, (t - 0.5) * 2)));
+      const g = Math.round(255 * Math.min(1, Math.max(0, (t - 0.25) * 1.6)));
+      const b = Math.round(255 * Math.min(1, t * 2));
+      return `rgb(${r},${g},${b})`;
+    }
+
+    function startSpectrogram() {
+      const rect = spectrogramCanvas.getBoundingClientRect();
+      spectrogramCanvas.width = Math.max(1, Math.round(rect.width));
+      spectrogramCanvas.height = Math.max(1, Math.round(rect.height));
+      spectrogramCtx.fillStyle = '#000';
+      spectrogramCtx.fillRect(0, 0, spectrogramCanvas.width, spectrogramCanvas.height);
+
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.4;
+      sourceNode.connect(analyser);
+      freqData = new Uint8Array(analyser.frequencyBinCount);
+
+      const maxBin = Math.min(
+        analyser.frequencyBinCount,
+        Math.max(1, Math.floor((8000 / (audioCtx.sampleRate / 2)) * analyser.frequencyBinCount))
+      );
+
+      function draw() {
+        spectrogramRAF = requestAnimationFrame(draw);
+        analyser.getByteFrequencyData(freqData);
+        const w = spectrogramCanvas.width;
+        const h = spectrogramCanvas.height;
+        if (w < 2) return;
+
+        spectrogramCtx.drawImage(spectrogramCanvas, 1, 0, w - 1, h, 0, 0, w - 1, h);
+
+        const binHeight = h / maxBin;
+        for (let i = 0; i < maxBin; i++) {
+          const y = h - Math.round((i + 1) * binHeight);
+          spectrogramCtx.fillStyle = colorForValue(freqData[i]);
+          spectrogramCtx.fillRect(w - 1, y, 1, Math.ceil(binHeight) + 1);
+        }
+      }
+      draw();
+    }
+
+    function stopSpectrogram() {
+      if (spectrogramRAF) cancelAnimationFrame(spectrogramRAF);
+      spectrogramRAF = null;
+      if (analyser && sourceNode) {
+        try { sourceNode.disconnect(analyser); } catch (e) {}
+      }
+      analyser = null;
+    }
+
+    function setStatus(connected) {
+      dot.className = 'status-dot ' + (connected ? 'on' : 'off');
+      statusText.textContent = connected ? 'transmitiendo' : 'desconectado';
+      startBtn.disabled = connected;
+      stopBtn.disabled = !connected;
+    }
+
+    function downsampleTo16k(float32Buffer, inputRate) {
+      if (inputRate === TARGET_RATE) return float32Buffer;
+      const ratio = inputRate / TARGET_RATE;
+      const outLength = Math.floor(float32Buffer.length / ratio);
+      const result = new Float32Array(outLength);
+      for (let i = 0; i < outLength; i++) {
+        const srcIndex = i * ratio;
+        const i0 = Math.floor(srcIndex);
+        const i1 = Math.min(i0 + 1, float32Buffer.length - 1);
+        const frac = srcIndex - i0;
+        result[i] = float32Buffer[i0] * (1 - frac) + float32Buffer[i1] * frac;
+      }
+      return result;
+    }
+
+    function floatToPCM16(float32Buffer) {
+      const buf = new ArrayBuffer(float32Buffer.length * 2);
+      const view = new DataView(buf);
+      for (let i = 0; i < float32Buffer.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32Buffer[i]));
+        view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      }
+      return buf;
+    }
+
+    function watchCaptions(sessionId) {
+      if (captionsHandle) captionsHandle.stop();
+      captionsHandle = connectCaptions(sessionId, (data) => {
+        const div = document.createElement('div');
+        const translations = Object.entries(data.translations || {})
+          .map(([lang, text]) => `[${lang}] ${text}`).join(' · ');
+        div.textContent = `#${data.seq} (${data.source_lang}) ${data.original}  —  ${translations}`;
+        log.prepend(div);
+      });
+    }
+
+    startBtn.addEventListener('click', async () => {
+      const sessionId = sessionInput.value.trim();
+      if (!sessionId) { alert('Poné el id de la sesión'); return; }
+
+      const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${wsProto}://${location.host}/ws/ingest/${sessionId}`);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = async () => {
+        setStatus(true);
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            ...(micSelect.value ? { deviceId: { exact: micSelect.value } } : {}),
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        populateMicList(); // por si recien ahora se otorgaron permisos, refrescar labels
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        sourceNode = audioCtx.createMediaStreamSource(mediaStream);
+        processorNode = audioCtx.createScriptProcessor(4096, 1, 1);
+
+        processorNode.onaudioprocess = (e) => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          const input = e.inputBuffer.getChannelData(0);
+          const down = downsampleTo16k(input, audioCtx.sampleRate);
+          const pcm16 = floatToPCM16(down);
+          ws.send(pcm16);
+        };
+
+        const silentGain = audioCtx.createGain();
+        silentGain.gain.value = 0;
+        sourceNode.connect(processorNode);
+        processorNode.connect(silentGain);
+        silentGain.connect(audioCtx.destination);
+
+        startSpectrogram();
+        watchCaptions(sessionId);
+      };
+
+      ws.onclose = () => setStatus(false);
+      ws.onerror = () => setStatus(false);
+    });
+
+    stopBtn.addEventListener('click', () => {
+      stopSpectrogram();
+      if (processorNode) processorNode.disconnect();
+      if (sourceNode) sourceNode.disconnect();
+      if (audioCtx) audioCtx.close();
+      if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+      if (ws) ws.close();
+      if (captionsHandle) captionsHandle.stop();
+      setStatus(false);
+    });
+
+    MacWM.initFromDOM();
+  </script>
+</body>
+</html>

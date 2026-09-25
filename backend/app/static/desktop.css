@@ -1,0 +1,288 @@
+@import url('https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap');
+
+:root {
+  --pink: #eea7c4;
+  --mac-bg: #dddddd;
+  --mac-white: #ffffff;
+  --mac-black: #000000;
+  --mac-gray-dark2: #444444;
+  --mac-gray: #c8c8c8;
+  --mac-gray-dark: #8f8f8f;
+  --mac-text: #111111;
+  --accent: #2c6e49;
+  --err: #b5342f;
+  --warn: #b87b1e;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden; /* el escritorio nunca scrollea -- cada ventana scrollea su propio contenido */
+  font-family: 'Silkscreen', 'Courier New', monospace;
+  color: var(--mac-text);
+  font-size: 13px;
+}
+
+html { background: var(--pink); }
+body { background: transparent; }
+
+canvas#dither-bg {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: -1;
+  image-rendering: pixelated;
+}
+
+/* ---------- Menu bar ---------- */
+
+.mac-menubar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 24px;
+  background: var(--mac-black);
+  color: var(--mac-white);
+  display: flex;
+  align-items: stretch;
+  z-index: 1000;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  user-select: none;
+}
+.mac-menu { position: relative; display: flex; }
+.mac-menu-label {
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  cursor: default;
+  font-weight: 700;
+}
+.mac-menu.open .mac-menu-label,
+.mac-menu-label:hover { background: var(--accent); color: var(--mac-white); }
+.mac-menu-dropdown {
+  display: none;
+  position: absolute;
+  top: 24px;
+  left: 0;
+  min-width: 200px;
+  background: var(--mac-black);
+  color: var(--mac-white);
+  border: 2px solid var(--mac-black);
+  box-shadow: 3px 3px 0 rgba(0,0,0,0.5);
+  padding: 4px 0;
+}
+.mac-menu.open .mac-menu-dropdown { display: block; }
+.mac-menu-item {
+  display: block;
+  padding: 5px 16px;
+  white-space: nowrap;
+  cursor: default;
+  color: inherit;
+  text-decoration: none;
+}
+.mac-menu-item:hover { background: var(--accent); color: var(--mac-white); }
+.mac-menu-sep { height: 1px; background: #555; margin: 4px 0; }
+.mac-menubar .apple-logo { padding: 0 10px; display: flex; align-items: center; font-size: 13px; }
+.mac-clock {
+  margin-left: auto;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Desktop ---------- */
+
+.desktop {
+  position: fixed;
+  top: 24px; left: 0; right: 0; bottom: 0;
+  overflow: hidden;
+}
+
+/* ---------- Windows ---------- */
+
+.mac-window {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--mac-white);
+  border: 2px solid var(--mac-black);
+  box-shadow: 4px 4px 0 rgba(0,0,0,0.55);
+  min-width: 240px;
+  min-height: 120px;
+}
+.mac-window[hidden] { display: none; }
+
+.mac-titlebar {
+  height: 24px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  background: var(--mac-gray);
+  color: var(--mac-black);
+  cursor: default;
+  position: relative;
+}
+.mac-window.focused .mac-titlebar { background: var(--mac-black); color: var(--mac-white); }
+
+.mac-close, .mac-zoom {
+  width: 16px; height: 16px;
+  background: var(--mac-white);
+  border: 1px solid var(--mac-black);
+  flex: 0 0 auto;
+  cursor: pointer;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 9px 9px;
+}
+.mac-window.focused .mac-close,
+.mac-window.focused .mac-zoom { background-color: var(--err); border-color: var(--mac-white); }
+.mac-window.focused .mac-zoom { background-color: var(--accent); }
+
+.mac-close {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><path d='M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5' stroke='black' stroke-width='1.8' stroke-linecap='round'/></svg>");
+}
+.mac-window.focused .mac-close {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><path d='M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5' stroke='white' stroke-width='1.8' stroke-linecap='round'/></svg>");
+}
+.mac-zoom {
+  order: 2;
+  margin-left: auto;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><rect x='1.5' y='1.5' width='7' height='7' fill='none' stroke='black' stroke-width='1.6'/></svg>");
+}
+.mac-window.focused .mac-zoom {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><rect x='1.5' y='1.5' width='7' height='7' fill='none' stroke='white' stroke-width='1.6'/></svg>");
+}
+
+.mac-titlebar-title {
+  flex: 1 1 auto;
+  order: 1;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mac-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 12px;
+  background: var(--mac-white);
+  line-height: 1.6;
+}
+.mac-body h2 {
+  font-size: 13px;
+  margin: 0 0 10px;
+  font-weight: 700;
+}
+
+.mac-resize-handle {
+  position: absolute;
+  right: 0; bottom: 0;
+  width: 14px; height: 14px;
+  cursor: nwse-resize;
+  background-image: repeating-linear-gradient(135deg, var(--mac-black) 0, var(--mac-black) 1px, transparent 1px, transparent 3px);
+  background-position: bottom right;
+  background-repeat: no-repeat;
+  background-size: 10px 10px;
+}
+
+/* ---------- Controles clasicos ---------- */
+
+.pixel-label {
+  display: inline-block;
+  background: var(--mac-black);
+  color: var(--mac-white);
+  padding: 2px 8px;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+label { display: block; font-size: 11px; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+input, select, textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  background: var(--mac-white);
+  border: 2px solid var(--mac-black);
+  color: var(--mac-text);
+  border-radius: 0;
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+button {
+  font-family: inherit;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 14px;
+  background: var(--mac-black);
+  color: var(--mac-white);
+  border: 2px solid var(--mac-black);
+  border-radius: 0;
+  box-shadow: none;
+  cursor: pointer;
+}
+button:hover { background: var(--accent); border-color: var(--accent); }
+button.secondary { background: var(--mac-white); color: var(--mac-black); }
+button.secondary:hover { background: var(--mac-gray); }
+button.danger { background: var(--err); border-color: var(--err); }
+button:disabled { opacity: 0.4; cursor: not-allowed; background: var(--mac-gray-dark); border-color: var(--mac-gray-dark); color: var(--mac-black); }
+
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.row > * { flex: 1; min-width: 160px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 2px solid var(--mac-black); }
+th { background: var(--mac-gray); text-transform: uppercase; font-size: 11px; }
+
+code {
+  background: var(--mac-gray);
+  border: 1px solid var(--mac-black);
+  padding: 1px 4px;
+  font-family: inherit;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 2px 7px;
+  border: 2px solid var(--mac-black);
+  border-radius: 0;
+  text-transform: uppercase;
+}
+.badge.live { background: var(--accent); color: var(--mac-white); border-color: var(--accent); }
+.badge.ended { background: var(--mac-gray); }
+
+.muted { color: #4a463f; font-size: 12px; }
+
+.status-dot { display: inline-block; width: 9px; height: 9px; border: 1px solid var(--mac-black); margin-right: 5px; }
+.status-dot.on { background: var(--accent); }
+.status-dot.off { background: var(--err); }
+
+.caption-box {
+  min-height: 20vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: clamp(1.1rem, 3vw, 1.8rem);
+  line-height: 1.3;
+  padding: 1.2rem;
+  background: var(--mac-gray);
+  border: 2px solid var(--mac-black);
+}
+.caption-history { font-size: 11px; }
+.caption-history div { padding: 4px 0; border-bottom: 1px solid var(--mac-gray-dark); }
+
+/* ---------- Dialogo "Acerca de" ---------- */
+.about-icon { font-size: 32px; text-align: center; margin-bottom: 6px; }

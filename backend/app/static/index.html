@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>N.E.R.E</title>
+  <link rel="stylesheet" href="/assets/desktop.css" />
+</head>
+<body>
+  <canvas id="dither-bg"></canvas>
+
+  <div class="mac-menubar">
+    <div class="apple-logo">🍎</div>
+    <div class="mac-menu">
+      <div class="mac-menu-label">Archivo</div>
+      <div class="mac-menu-dropdown">
+        <a class="mac-menu-item" href="/">Inicio</a>
+        <a class="mac-menu-item" href="/audience">Audiencia</a>
+        <a class="mac-menu-item" href="/monitor">Monitoreo</a>
+      </div>
+    </div>
+    <div class="mac-menu">
+      <div class="mac-menu-label">Ventanas</div>
+      <div class="mac-menu-dropdown" id="windows-menu"></div>
+    </div>
+    <div class="mac-clock"></div>
+  </div>
+
+  <div class="desktop">
+    <div class="mac-window" data-win-id="about" data-win-title="Acerca de" data-win-x="160" data-win-y="70" data-win-w="300" data-win-h="210" data-win-start-hidden>
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Acerca de N.E.R.E</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <div class="about-icon">🎙️</div>
+        <p style="text-align:center;font-weight:700;margin:4px 0">N.E.R.E</p>
+        <p class="muted" style="text-align:center">Núcleo de Escucha y Reconocimiento en Eventos<br>Transcripción y traducción en vivo, open source. v0.1</p>
+      </div>
+    </div>
+
+    <div class="mac-window" data-win-id="new-session" data-win-title="Nueva sesión" data-win-x="30" data-win-y="20" data-win-w="440" data-win-h="560" data-win-min-w="360" data-win-min-h="380">
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Nueva sesión</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <span class="pixel-label">REC</span>
+        <p class="muted" style="margin-top:10px">
+          Una sesión = una charla. Podés crear varias para correr transcripción
+          simultánea en distintas salas.
+        </p>
+        <label for="name">Nombre de la charla</label>
+        <input id="name" placeholder="ej: Keynote - Open Source at Scale" />
+        <div class="row">
+          <div>
+            <label for="source_lang">Idioma original</label>
+            <select id="source_lang">
+              <option value="">Auto-detectar</option>
+              <option value="en">Inglés</option>
+              <option value="es">Español</option>
+              <option value="pt">Portugués</option>
+            </select>
+          </div>
+          <div>
+            <label for="session_id">ID de sesión (opcional)</label>
+            <input id="session_id" placeholder="ej: sala-a-keynote" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="engine">Motor de transcripción</label>
+            <select id="engine">
+              <option value="local_whisper">Whisper local (faster-whisper)</option>
+              <option value="whispercpp">Whisper local (whisper.cpp)</option>
+              <option value="cloud_whisper">Whisper en la nube (OpenAI)</option>
+              <option value="gemini_audio">Gemini (audio directo)</option>
+            </select>
+          </div>
+          <div>
+            <label for="chunking">Corte de audio</label>
+            <select id="chunking">
+              <option value="vad">Por pausas de voz (VAD)</option>
+              <option value="fixed">Por tiempo fijo (sin VAD, diagnóstico)</option>
+            </select>
+          </div>
+        </div>
+        <p class="muted" style="margin-top:6px">
+          Si en <a href="/monitor">/monitor</a> el <code>% detectado como voz</code> te da
+          0%, probá con corte "por tiempo fijo": si con eso tampoco transcribe nada, el
+          problema es de captura de audio, no del motor ni del VAD.
+        </p>
+        <label for="glossary">Glosario (un término por línea)</label>
+        <textarea id="glossary" rows="3" placeholder="Kubernetes&#10;Nerdearla&#10;Fulano de Tal"></textarea>
+        <div style="margin-top:12px">
+          <button id="create">Crear sesión</button>
+        </div>
+        <div id="result" style="margin-top:12px"></div>
+      </div>
+    </div>
+
+    <div class="mac-window" data-win-id="sessions" data-win-title="Sesiones activas" data-win-x="500" data-win-y="20" data-win-w="520" data-win-h="360" data-win-min-w="360" data-win-min-h="200">
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Sesiones activas</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <div id="sessions" class="muted">Cargando...</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/dither-bg.js"></script>
+  <script src="/assets/mac-wm.js"></script>
+  <script>
+    async function loadSessions() {
+      const res = await fetch('/api/sessions');
+      const sessions = await res.json();
+      const el = document.getElementById('sessions');
+      if (!sessions.length) {
+        el.innerHTML = '<p class="muted">Todavía no hay sesiones creadas.</p>';
+        return;
+      }
+      el.innerHTML = '<table><thead><tr><th>Nombre</th><th>ID</th><th>Estado</th><th>Motor</th><th>Links</th></tr></thead><tbody>' +
+        sessions.map(s => `
+          <tr>
+            <td>${s.name}</td>
+            <td><code>${s.id}</code></td>
+            <td><span class="badge ${s.status}">${s.status}</span></td>
+            <td>${s.engine}${s.chunking === 'fixed' ? ' (sin VAD)' : ''}</td>
+            <td>
+              <a href="/operator?session=${s.id}">Dashboard</a> ·
+              <a href="/audience?session=${s.id}">Audiencia</a>
+            </td>
+          </tr>
+        `).join('') + '</tbody></table>';
+    }
+
+    document.getElementById('create').addEventListener('click', async () => {
+      const name = document.getElementById('name').value.trim();
+      if (!name) { alert('Poné un nombre para la charla'); return; }
+      const source_lang = document.getElementById('source_lang').value || null;
+      const session_id = document.getElementById('session_id').value.trim() || null;
+      const engine = document.getElementById('engine').value;
+      const chunking = document.getElementById('chunking').value;
+      const glossary = document.getElementById('glossary').value
+        .split('\n').map(s => s.trim()).filter(Boolean);
+
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, source_lang, session_id, glossary, engine, chunking }),
+      });
+      const resultEl = document.getElementById('result');
+      if (!res.ok) {
+        const err = await res.json();
+        resultEl.innerHTML = `<p style="color:var(--err)">Error: ${err.detail}</p>`;
+        return;
+      }
+      const s = await res.json();
+      resultEl.innerHTML = `
+        <p style="color:var(--accent)">Sesión creada: <code>${s.id}</code></p>
+        <p><a href="/operator?session=${s.id}">Ir al dashboard →</a></p>
+        <p><a href="/audience?session=${s.id}">Ir a la vista de audiencia →</a></p>
+      `;
+      loadSessions();
+    });
+
+    MacWM.initFromDOM();
+    loadSessions();
+    setInterval(loadSessions, 5000);
+  </script>
+</body>
+</html>

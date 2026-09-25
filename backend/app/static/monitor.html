@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Monitoreo — N.E.R.E</title>
+  <link rel="stylesheet" href="/assets/desktop.css" />
+</head>
+<body>
+  <canvas id="dither-bg"></canvas>
+
+  <div class="mac-menubar">
+    <div class="apple-logo">🍎</div>
+    <div class="mac-menu">
+      <div class="mac-menu-label">Archivo</div>
+      <div class="mac-menu-dropdown">
+        <a class="mac-menu-item" href="/">Inicio</a>
+        <a class="mac-menu-item" href="/audience">Audiencia</a>
+      </div>
+    </div>
+    <div class="mac-menu">
+      <div class="mac-menu-label">Ventanas</div>
+      <div class="mac-menu-dropdown" id="windows-menu"></div>
+    </div>
+    <div class="mac-clock"></div>
+  </div>
+
+  <div class="desktop">
+    <div class="mac-window" data-win-id="about" data-win-title="Acerca de" data-win-x="160" data-win-y="70" data-win-w="300" data-win-h="210" data-win-start-hidden>
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Acerca de N.E.R.E</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <div class="about-icon">🎙️</div>
+        <p style="text-align:center;font-weight:700;margin:4px 0">N.E.R.E</p>
+        <p class="muted" style="text-align:center">Núcleo de Escucha y Reconocimiento en Eventos<br>Transcripción y traducción en vivo, open source. v0.1</p>
+      </div>
+    </div>
+
+    <div class="mac-window" data-win-id="monitor" data-win-title="Panel de monitoreo" data-win-x="24" data-win-y="20" data-win-w="1120" data-win-h="360" data-win-min-w="420" data-win-min-h="180">
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Panel de monitoreo</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <table>
+          <thead>
+            <tr>
+              <th>Charla</th>
+              <th>ID</th>
+              <th>Estado</th>
+              <th>Idioma</th>
+              <th>Motor</th>
+              <th>Audiencia</th>
+              <th>Chunks recibidos</th>
+              <th>Pico de audio</th>
+              <th>% detectado como voz</th>
+              <th>Segmentos emitidos</th>
+              <th>Últ. latencia</th>
+              <th>Errores</th>
+              <th>Última actividad</th>
+              <th>Exportar</th>
+            </tr>
+          </thead>
+          <tbody id="rows"><tr><td colspan="14" class="muted">Cargando...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/dither-bg.js"></script>
+  <script src="/assets/mac-wm.js"></script>
+  <script>
+    function timeAgo(ts) {
+      if (!ts) return '—';
+      const diff = Math.max(0, (Date.now() / 1000) - ts);
+      if (diff < 60) return `hace ${Math.round(diff)}s`;
+      return `hace ${Math.round(diff / 60)}min`;
+    }
+
+    async function refresh() {
+      const res = await fetch('/api/sessions');
+      const sessions = await res.json();
+      const rows = document.getElementById('rows');
+      if (!sessions.length) {
+        rows.innerHTML = '<tr><td colspan="14" class="muted">No hay sesiones.</td></tr>';
+        return;
+      }
+      rows.innerHTML = sessions.map(s => {
+        const ratio = s.stats.speech_ratio;
+        const ratioColor = ratio == null ? 'inherit' : (ratio < 0.05 ? 'var(--err)' : ratio > 0.85 ? 'var(--warn)' : 'var(--accent)');
+        const errTitle = s.stats.last_error ? ` title="${s.stats.last_error.replace(/"/g, '&quot;')}"` : '';
+        const peak = s.stats.audio_peak_max;
+        const peakPct = peak != null ? Math.round((peak / 32767) * 100) : null;
+        const peakColor = peak == null ? 'inherit' : (peak < 200 ? 'var(--err)' : peak < 1000 ? 'var(--warn)' : 'var(--accent)');
+        const peakTitle = peak == null ? '' : ` title="pico maximo visto en la sesion: ${peak}/32767. Por debajo de ~200 es virtualmente silencio -- problema de captura de audio, no del VAD."`;
+        return `
+        <tr>
+          <td>${s.name}</td>
+          <td><code>${s.id}</code></td>
+          <td><span class="badge ${s.status}">${s.status}</span></td>
+          <td>${s.source_lang || 'auto'}</td>
+          <td>${s.engine}${s.chunking === 'fixed' ? ' (sin VAD)' : ''}</td>
+          <td>${s.audience_count}</td>
+          <td>${s.stats.chunks_received}</td>
+          <td style="color:${peakColor}"${peakTitle}>${peakPct != null ? peakPct + '%' : '—'}</td>
+          <td style="color:${ratioColor}">${ratio != null ? Math.round(ratio * 100) + '%' : '—'}</td>
+          <td>${s.stats.segments_emitted}</td>
+          <td>${s.stats.last_latency_ms != null ? s.stats.last_latency_ms + ' ms' : '—'}</td>
+          <td style="color:${s.stats.errors > 0 ? 'var(--err)' : 'inherit'}"${errTitle}>${s.stats.errors}</td>
+          <td>${timeAgo(s.stats.last_activity)}</td>
+          <td>
+            <a href="/api/sessions/${s.id}/export?format=srt&lang=es">SRT</a> ·
+            <a href="/api/sessions/${s.id}/export?format=vtt&lang=es">VTT</a> ·
+            <a href="/api/sessions/${s.id}/export?format=txt&lang=original">TXT</a>
+          </td>
+        </tr>
+      `;
+      }).join('');
+    }
+
+    MacWM.initFromDOM();
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>

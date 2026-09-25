@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Subtítulos — N.E.R.E</title>
+  <link rel="stylesheet" href="/assets/desktop.css" />
+</head>
+<body>
+  <canvas id="dither-bg"></canvas>
+
+  <div class="mac-menubar">
+    <div class="apple-logo">🍎</div>
+    <div class="mac-menu">
+      <div class="mac-menu-label">Archivo</div>
+      <div class="mac-menu-dropdown">
+        <a class="mac-menu-item" href="/">Inicio</a>
+        <a class="mac-menu-item" href="/monitor">Monitoreo</a>
+      </div>
+    </div>
+    <div class="mac-menu">
+      <div class="mac-menu-label">Ventanas</div>
+      <div class="mac-menu-dropdown" id="windows-menu"></div>
+    </div>
+    <div class="mac-clock"></div>
+  </div>
+
+  <div class="desktop">
+    <div class="mac-window" data-win-id="about" data-win-title="Acerca de" data-win-x="160" data-win-y="70" data-win-w="300" data-win-h="210" data-win-start-hidden>
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Acerca de N.E.R.E</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <div class="about-icon">🎙️</div>
+        <p style="text-align:center;font-weight:700;margin:4px 0">N.E.R.E</p>
+        <p class="muted" style="text-align:center">Núcleo de Escucha y Reconocimiento en Eventos<br>Transcripción y traducción en vivo, open source. v0.1</p>
+      </div>
+    </div>
+
+    <div class="mac-window" data-win-id="controls" data-win-title="Vista de audiencia" data-win-x="24" data-win-y="20" data-win-w="460" data-win-h="150" data-win-min-w="360" data-win-min-h="130">
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Vista de audiencia</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <div class="row">
+          <div>
+            <label>Charla</label>
+            <select id="session_select"></select>
+          </div>
+          <div>
+            <label>Idioma de subtítulos</label>
+            <select id="lang_select">
+              <option value="es">Español</option>
+              <option value="en">Inglés</option>
+              <option value="original">Original (sin traducir)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mac-window" data-win-id="caption" data-win-title="Subtítulos en vivo" data-win-x="24" data-win-y="190" data-win-w="700" data-win-h="240" data-win-min-w="320" data-win-min-h="140">
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Subtítulos en vivo</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <div id="caption" class="caption-box muted">Elegí una charla para ver los subtítulos.</div>
+      </div>
+    </div>
+
+    <div class="mac-window" data-win-id="history" data-win-title="Historial" data-win-x="500" data-win-y="20" data-win-w="360" data-win-h="410" data-win-min-w="240" data-win-min-h="140">
+      <div class="mac-titlebar">
+        <div class="mac-close"></div>
+        <div class="mac-titlebar-title">Historial</div>
+        <div class="mac-zoom"></div>
+      </div>
+      <div class="mac-body">
+        <div id="history" class="caption-history"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/dither-bg.js"></script>
+  <script src="/assets/mac-wm.js"></script>
+  <script src="/assets/captions-ws.js"></script>
+  <script>
+    const sessionSelect = document.getElementById('session_select');
+    const langSelect = document.getElementById('lang_select');
+    const captionEl = document.getElementById('caption');
+    const historyEl = document.getElementById('history');
+    let captionsHandle = null;
+
+    const params = new URLSearchParams(location.search);
+
+    async function loadSessions() {
+      const res = await fetch('/api/sessions');
+      const sessions = await res.json();
+      const current = sessionSelect.value;
+      sessionSelect.innerHTML = sessions.map(s =>
+        `<option value="${s.id}">${s.name} (${s.status})</option>`
+      ).join('');
+      if (params.get('session') && !current) {
+        sessionSelect.value = params.get('session');
+      } else if (current) {
+        sessionSelect.value = current;
+      }
+    }
+
+    function renderCaption(data) {
+      const lang = langSelect.value;
+      const text = lang === 'original' ? data.original : (data.translations[lang] || data.original);
+      captionEl.textContent = text;
+      captionEl.classList.remove('muted');
+
+      const div = document.createElement('div');
+      div.textContent = `#${data.seq}  ${text}`;
+      historyEl.prepend(div);
+      while (historyEl.children.length > 50) historyEl.removeChild(historyEl.lastChild);
+    }
+
+    function connect() {
+      if (captionsHandle) captionsHandle.stop();
+      const sessionId = sessionSelect.value;
+      if (!sessionId) return;
+      captionEl.classList.add('muted');
+      captionsHandle = connectCaptions(sessionId, renderCaption, (status) => {
+        if (status === 'connected') {
+          captionEl.textContent = 'Conectado. Esperando audio...';
+        } else {
+          captionEl.textContent = 'Desconectado, reintentando...';
+        }
+      });
+    }
+
+    sessionSelect.addEventListener('change', connect);
+    langSelect.addEventListener('change', () => {}); // el proximo mensaje ya usa el nuevo idioma
+
+    (async () => {
+      await loadSessions();
+      if (sessionSelect.value) connect();
+      setInterval(loadSessions, 8000);
+    })();
+
+    MacWM.initFromDOM();
+  </script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+[project]
+name = "nere"
+version = "0.1.0"
+description = "N.E.R.E -- Nucleo de Escucha y Reconocimiento en Eventos. Transcripcion y traduccion simultanea open source para conferencias"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "faster-whisper>=1.0.3",
+    "google-genai>=0.3.0",
+    "httpx>=0.28.1",
+    "numpy>=1.26",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+    "pywhispercpp>=1.5.1",
+    "setuptools<81",
+    "uvicorn[standard]>=0.30",
+    "webrtcvad>=2.0.10",
+]
+
+[tool.uv]
+package = false
