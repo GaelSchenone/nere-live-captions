@@ -164,4 +164,4 @@ se quedó sin transmitir.
 
 ## Licencia
 
-Open source — pensado para que cualquier conferencia lo pueda desplegar y adaptar.
+[MIT](LICENSE) — open source, pensado para que cualquier conferencia lo pueda desplegar y adaptar.
