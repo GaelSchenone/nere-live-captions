@@ -97,11 +97,15 @@ cp .env.example .env
 # descargarlos en medio de una charla real. Todo es interactivo y opcional.
 python install_models.py
 
+# Da de alta tu usuario (una sola vez) -- N.E.R.E es multi-tenant: cada charla
+# pertenece al usuario que la creó, hasta corriéndolo solo en tu PC para un evento.
+python scripts/create_user.py
+
 uvicorn app.main:app --reload --port 8000
 ```
 
-Abrí `http://localhost:8000`, creá una sesión, y desde otra pestaña/dispositivo abrí
-`/operator?session=<id>` para empezar a transmitir audio, y `/audience?session=<id>`
+Abrí `http://localhost:8000`, logueate, creá una sesión, y desde otra pestaña/dispositivo
+abrí `/operator?session=<id>` para empezar a transmitir audio, y `/audience?session=<id>`
 para ver los subtítulos.
 
 El combo de "Motor de transcripción" (y el de perfil de Whisper) solo muestra las
@@ -116,9 +120,11 @@ recargá la página.
 La primera vez que se usa un perfil que no precalentaste, `faster-whisper` descarga el
 modelo correspondiente (ver [Perfiles de Whisper local](#perfiles-de-whisper-local-cpugpu) abajo).
 
-> Las sesiones viven en memoria (no en una base de datos): si el proceso se reinicia (por
-> ejemplo, `--reload` detectando un cambio de código mientras hay algo corriendo) se pierden.
-> Para un evento real, no reinicies el proceso durante el show.
+> Las sesiones, sus glosarios y el historial de subtítulos se persisten en SQLite
+> (`nere.db`, un solo archivo -- configurable con `DATABASE_URL` en `.env`): si el
+> proceso se reinicia a mitad de un evento, no se pierden -- se recuperan solas apenas
+> alguien vuelve a pedir esa sesión. Lo único que no sobrevive un reinicio son las
+> conexiones WebSocket activas (el operador y la audiencia van a tener que reconectar).
 
 ## Correr varias sesiones al mismo tiempo
 
@@ -368,7 +374,11 @@ sin transmitir.
       pensado para deployments con muchas sesiones en paralelo en un solo servidor.
 - [x] Portugués como idioma de origen adicional (`pt→es` y `pt→en`), con fix de un bug real
       de `sentencepiece.decode()` encontrado al probarlo con texto real.
-- [ ] Autenticación básica para las vistas de operador/monitoreo (hoy son abiertas).
+- [x] Login y multi-tenancy: cada sesión pertenece al usuario que la creó (`/`, `/operator` y
+      `/monitor` requieren login; `/audience`, `/overlay` y `/screen` siguen públicas a propósito,
+      son las que mira la audiencia). Alta de usuarios manual con `scripts/create_user.py`.
+- [x] Persistencia real (SQLite vía SQLAlchemy): sesiones, glosarios y el historial de
+      subtítulos sobreviven un reinicio del proceso.
 
 ## Licencia
 
