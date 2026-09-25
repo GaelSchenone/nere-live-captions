@@ -5,6 +5,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .. import engines
 from ..asr import FixedChunker, StreamBuffer
+from ..config import settings
 from ..sessions import CaptionSegment, manager
 from ..translate import translate_text
 
@@ -36,8 +37,16 @@ async def _process_segment(session, seq: int, audio_f32) -> CaptionSegment | Non
 
     lang = session.source_lang or detected_lang
     translations = {}
-    for tgt in _targets_for(lang):
-        translations[tgt] = await translate_text(text, lang, tgt, session.glossary)
+    # La traduccion es best-effort: un fallo (key faltante, cuota 429 de Gemini,
+    # etc.) no puede descartar el subtitulo -- se emite igual con el texto original
+    # y las traducciones que hayan salido; todo queda visible en /monitor.
+    if settings.gemini_api_key:
+        for tgt in _targets_for(lang):
+            try:
+                translations[tgt] = await translate_text(text, lang, tgt, session.glossary)
+            except Exception as e:
+                session.monitor_stats["errors"] += 1
+                session.monitor_stats["last_error"] = f"traduccion a {tgt}: {e}"
 
     t1 = time.time()
     session.monitor_stats["last_latency_ms"] = round((t1 - t0) * 1000)
