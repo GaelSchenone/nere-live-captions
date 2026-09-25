@@ -1,23 +1,42 @@
 import numpy as np
 import httpx
+from google import genai
 from google.genai import types
 
 from . import asr
 from .config import settings
-from .translate import LANG_NAMES, get_client
 
 ENGINES = ["local_whisper", "whispercpp", "cloud_whisper", "gemini_audio"]
 DEFAULT_ENGINE = settings.default_engine if settings.default_engine in ENGINES else "local_whisper"
 
+LANG_NAMES = {
+    "es": "español",
+    "en": "inglés",
+    "pt": "portugués",
+}
 
-async def transcribe(engine: str, audio_f32: np.ndarray, language: str | None) -> tuple[str, str]:
+_gemini_client: genai.Client | None = None
+
+
+def _get_gemini_client() -> genai.Client:
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=settings.gemini_api_key)
+    return _gemini_client
+
+
+async def transcribe(
+    engine: str, audio_f32: np.ndarray, language: str | None, whisper_preset: str | None = None
+) -> tuple[str, str]:
     if engine == "whispercpp":
-        return await asr.transcribe_chunk_whispercpp(audio_f32, language)
+        preset = whisper_preset if whisper_preset in asr.WHISPERCPP_PRESETS else asr.DEFAULT_WHISPERCPP_PRESET
+        return await asr.transcribe_chunk_whispercpp(audio_f32, language, preset)
     if engine == "cloud_whisper":
         return await _transcribe_cloud_whisper(audio_f32, language)
     if engine == "gemini_audio":
         return await _transcribe_gemini_audio(audio_f32, language)
-    return await asr.transcribe_chunk(audio_f32, language)
+    preset = whisper_preset if whisper_preset in asr.WHISPER_PRESETS else asr.DEFAULT_WHISPER_PRESET
+    return await asr.transcribe_chunk(audio_f32, language, preset)
 
 
 async def _transcribe_cloud_whisper(audio_f32: np.ndarray, language: str | None) -> tuple[str, str]:
@@ -51,7 +70,7 @@ async def _transcribe_gemini_audio(audio_f32: np.ndarray, language: str | None) 
         raise RuntimeError("Falta GEMINI_API_KEY para usar el motor gemini_audio")
 
     wav_bytes = asr.pcm_f32_to_wav_bytes(audio_f32)
-    client = get_client()
+    client = _get_gemini_client()
     lang_hint = f" El idioma hablado deberia ser {LANG_NAMES.get(language, language)}." if language else ""
     prompt = (
         "Transcribi EXACTAMENTE lo que se dice en este audio, en el idioma original "

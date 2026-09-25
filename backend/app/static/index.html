@@ -92,6 +92,19 @@
           0%, probá con corte "por tiempo fijo": si con eso tampoco transcribe nada, el
           problema es de captura de audio, no del motor ni del VAD.
         </p>
+        <div id="whisper_preset_row" style="margin-top:0.5rem">
+          <label for="whisper_preset">Perfil de Whisper (calidad/velocidad)</label>
+          <select id="whisper_preset"><option value="">Cargando...</option></select>
+          <p class="muted" style="margin-top:4px">
+            Solo aplica con los motores "Whisper local". Todos están calibrados para ir
+            por debajo de tiempo real (subtítulos en vivo), no solo "más pesado = más
+            lento" — ver la tabla de benchmarks en el README para elegir según tu hardware
+            (CPU/AMD, GPU NVIDIA, Apple Silicon). En faster-whisper, el perfil "SOLO
+            INGLÉS" es más preciso para charlas en inglés con acento (francés, finés,
+            etc.) que no vayan a cambiar de idioma; si puede haber charlas en otros
+            idiomas, usá el perfil multilingüe.
+          </p>
+        </div>
         <label for="glossary">Glosario (un término por línea)</label>
         <textarea id="glossary" rows="3" placeholder="Kubernetes&#10;Nerdearla&#10;Fulano de Tal"></textarea>
         <div style="margin-top:12px">
@@ -130,13 +143,47 @@
             <td>${s.name}</td>
             <td><code>${s.id}</code></td>
             <td><span class="badge ${s.status}">${s.status}</span></td>
-            <td>${s.engine}${s.chunking === 'fixed' ? ' (sin VAD)' : ''}</td>
+            <td>${s.engine}${(s.engine === 'local_whisper' || s.engine === 'whispercpp') ? ' · ' + s.whisper_preset : ''}${s.chunking === 'fixed' ? ' (sin VAD)' : ''}</td>
             <td>
               <a href="/operator?session=${s.id}">Dashboard</a> ·
               <a href="/audience?session=${s.id}">Audiencia</a>
             </td>
           </tr>
         `).join('') + '</tbody></table>';
+    }
+
+    const engineSelect = document.getElementById('engine');
+    const whisperPresetRow = document.getElementById('whisper_preset_row');
+    const whisperPresetSelect = document.getElementById('whisper_preset');
+
+    let whisperPresetsData = null;
+    const optgroup = (label, presets) =>
+      `<optgroup label="${label}">${presets.map(p => `<option value="${p.key}">${p.label}</option>`).join('')}</optgroup>`;
+
+    function updateWhisperPresetVisibility() {
+      const engine = engineSelect.value;
+      whisperPresetRow.style.display = (engine === 'local_whisper' || engine === 'whispercpp') ? '' : 'none';
+      if (!whisperPresetsData) return;
+      if (engine === 'whispercpp') {
+        const d = whisperPresetsData.whispercpp;
+        whisperPresetSelect.innerHTML = d.presets.map(p => `<option value="${p.key}">${p.label}</option>`).join('');
+        whisperPresetSelect.value = d.default;
+      } else if (engine === 'local_whisper') {
+        const d = whisperPresetsData.local_whisper;
+        const cpuPresets = d.presets.filter(p => p.key.startsWith('cpu_'));
+        const gpuPresets = d.presets.filter(p => p.key.startsWith('gpu_'));
+        whisperPresetSelect.innerHTML =
+          optgroup('CPU (cualquier máquina, ej. MacBook sin GPU)', cpuPresets) +
+          optgroup('GPU NVIDIA (requiere GPU en la máquina que corre el backend)', gpuPresets);
+        whisperPresetSelect.value = d.default;
+      }
+    }
+    engineSelect.addEventListener('change', updateWhisperPresetVisibility);
+
+    async function loadWhisperPresets() {
+      const res = await fetch('/api/whisper-presets');
+      whisperPresetsData = await res.json();
+      updateWhisperPresetVisibility();
     }
 
     document.getElementById('create').addEventListener('click', async () => {
@@ -146,13 +193,14 @@
       const session_id = document.getElementById('session_id').value.trim() || null;
       const engine = document.getElementById('engine').value;
       const chunking = document.getElementById('chunking').value;
+      const whisper_preset = whisperPresetSelect.value || null;
       const glossary = document.getElementById('glossary').value
         .split('\n').map(s => s.trim()).filter(Boolean);
 
       const res = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, source_lang, session_id, glossary, engine, chunking }),
+        body: JSON.stringify({ name, source_lang, session_id, glossary, engine, chunking, whisper_preset }),
       });
       const resultEl = document.getElementById('result');
       if (!res.ok) {
@@ -171,6 +219,7 @@
 
     MacWM.initFromDOM();
     loadSessions();
+    loadWhisperPresets();
     setInterval(loadSessions, 5000);
   </script>
 </body>

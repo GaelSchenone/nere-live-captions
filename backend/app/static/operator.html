@@ -61,6 +61,7 @@
           <button id="stop" class="danger" disabled>Detener</button>
           <button id="open_overlay" class="secondary">Abrir ventana de subtítulos ↗</button>
           <button id="copy_overlay" class="secondary">Copiar link para OBS 📋</button>
+          <button id="end_session" class="danger">Terminar sesión</button>
         </div>
         <p class="muted" style="margin-top:0.75rem">
           Usá el mic de la PC, o ruteá el audio del sistema a un dispositivo de entrada
@@ -181,6 +182,7 @@
     const stopBtn = document.getElementById('stop');
     const overlayBtn = document.getElementById('open_overlay');
     const copyOverlayBtn = document.getElementById('copy_overlay');
+    const endSessionBtn = document.getElementById('end_session');
     const dot = document.getElementById('dot');
     const statusText = document.getElementById('status_text');
     const log = document.getElementById('log');
@@ -510,7 +512,7 @@
       ws.onerror = () => setStatus(false);
     });
 
-    stopBtn.addEventListener('click', () => {
+    function stopCapture() {
       stopSpectrogram();
       if (processorNode) processorNode.disconnect();
       if (sourceNode) sourceNode.disconnect();
@@ -519,6 +521,22 @@
       if (ws) ws.close();
       if (captionsHandle) captionsHandle.stop();
       setStatus(false);
+    }
+
+    stopBtn.addEventListener('click', stopCapture);
+
+    endSessionBtn.addEventListener('click', async () => {
+      const sessionId = sessionInput.value.trim();
+      if (!sessionId) { alert('Poné el id de la sesión'); return; }
+      if (!confirm('¿Terminar la sesión? La audiencia va a dejar de recibir subtítulos nuevos.')) return;
+      stopCapture();
+      const res = await fetch(`/api/sessions/${sessionId}/end`, { method: 'POST' });
+      if (!res.ok) {
+        alert('No se pudo terminar la sesión.');
+        return;
+      }
+      endSessionBtn.textContent = 'Sesión terminada ✓';
+      setTimeout(() => { endSessionBtn.textContent = 'Terminar sesión'; }, 2500);
     });
 
     MacWM.initFromDOM();

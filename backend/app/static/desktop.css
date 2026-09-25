@@ -145,6 +145,7 @@ canvas#dither-bg {
 .mac-window.focused .mac-zoom { background-color: var(--accent); }
 
 .mac-close {
+  order: 1;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><path d='M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5' stroke='black' stroke-width='1.8' stroke-linecap='round'/></svg>");
 }
 .mac-window.focused .mac-close {
@@ -152,7 +153,6 @@ canvas#dither-bg {
 }
 .mac-zoom {
   order: 2;
-  margin-left: auto;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><rect x='1.5' y='1.5' width='7' height='7' fill='none' stroke='black' stroke-width='1.6'/></svg>");
 }
 .mac-window.focused .mac-zoom {
@@ -161,7 +161,7 @@ canvas#dither-bg {
 
 .mac-titlebar-title {
   flex: 1 1 auto;
-  order: 1;
+  order: 0;
   text-align: center;
   font-size: 12px;
   font-weight: 700;

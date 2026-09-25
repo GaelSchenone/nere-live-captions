@@ -9,11 +9,10 @@ load_dotenv()
 @dataclass
 class Settings:
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
-    translation_model: str = os.getenv("TRANSLATION_MODEL", "gemini-2.5-flash")
-    whisper_model: str = os.getenv("WHISPER_MODEL", "small")
-    whisper_device: str = os.getenv("WHISPER_DEVICE", "cpu")
-    whisper_compute_type: str = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
     whisper_workers: int = int(os.getenv("WHISPER_WORKERS", "2"))
+    # Preset default para sesiones nuevas si no se elige uno explicito (ver
+    # WHISPER_PRESETS en asr.py). "cpu_medio" anda en cualquier maquina, sin GPU.
+    default_whisper_preset: str = os.getenv("DEFAULT_WHISPER_PRESET", "cpu_medio")
     vad_aggressiveness: int = int(os.getenv("VAD_AGGRESSIVENESS", "2"))
     vad_silence_ms: int = int(os.getenv("VAD_SILENCE_MS", "300"))
     vad_max_buffer_seconds: float = float(os.getenv("VAD_MAX_BUFFER_SECONDS", "6.0"))
@@ -21,8 +20,9 @@ class Settings:
 
     # whisper.cpp (via pywhispercpp) -- otro motor 100% local, para comparar
     # contra faster-whisper (distinto backend de inferencia, misma familia de modelos)
-    whispercpp_model: str = os.getenv("WHISPERCPP_MODEL", "base")
     whispercpp_threads: int = int(os.getenv("WHISPERCPP_THREADS", "4"))
+    # Preset default para el motor whispercpp (ver WHISPERCPP_PRESETS en asr.py)
+    default_whispercpp_preset: str = os.getenv("DEFAULT_WHISPERCPP_PRESET", "wcpp_medio")
 
     default_engine: str = os.getenv("DEFAULT_ASR_ENGINE", "local_whisper")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")

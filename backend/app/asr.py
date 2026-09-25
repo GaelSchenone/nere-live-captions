@@ -1,5 +1,8 @@
 import asyncio
+import ctypes
 import io
+import pathlib
+import re
 import wave
 from concurrent.futures import ThreadPoolExecutor
 
@@ -8,6 +11,87 @@ import webrtcvad
 from faster_whisper import WhisperModel
 
 from .config import settings
+
+
+def _preload_cuda_libs() -> None:
+    """CTranslate2 busca libcublas.so.12/libcudnn*.so.9 por nombre via dlopen,
+    pero LD_LIBRARY_PATH seteado en caliente (os.environ, ya con el proceso
+    corriendo) no alcanza a influir esa busqueda. Precargando los .so de los
+    paquetes pip nvidia-cublas-cu12/nvidia-cudnn-cu12 con ctypes+RTLD_GLOBAL
+    antes de crear el modelo, un dlopen posterior por nombre los encuentra
+    porque el linker ya los tiene cargados en el proceso."""
+    try:
+        import nvidia.cublas
+        import nvidia.cudnn
+    except ImportError:
+        return
+
+    cublas_dir = pathlib.Path(next(iter(nvidia.cublas.__path__))) / "lib"
+    cudnn_dir = pathlib.Path(next(iter(nvidia.cudnn.__path__))) / "lib"
+    for name in (
+        "libcublasLt.so.12",
+        "libcublas.so.12",
+        "libcudnn_graph.so.9",
+        "libcudnn_ops.so.9",
+        "libcudnn_engines_precompiled.so.9",
+        "libcudnn_engines_runtime_compiled.so.9",
+        "libcudnn_heuristic.so.9",
+        "libcudnn.so.9",
+    ):
+        for lib_dir in (cublas_dir, cudnn_dir):
+            path = lib_dir / name
+            if path.exists():
+                ctypes.CDLL(str(path), mode=ctypes.RTLD_GLOBAL)
+                break
+
+
+_preload_cuda_libs()  # no-op si no estan instalados nvidia-cublas-cu12/nvidia-cudnn-cu12
+
+# Presets de faster-whisper: eleccion explicita de perfil por sesion en vez de
+# una sola config global -- pensado para que el mismo backend sirva tanto una
+# MacBook sin GPU (perfiles cpu_*) como una maquina con GPU NVIDIA (perfiles
+# gpu_*, requieren `pip install nvidia-cublas-cu12 nvidia-cudnn-cu12`).
+#
+# Los perfiles "pesados" NO son "maxima calidad sin importar la latencia" --
+# son la mejor calidad posible DENTRO de un presupuesto de tiempo real, pensado
+# para subtitulos en vivo (medido con audio real, ~11s -> tiempo de inferencia):
+#   - large-v3-turbo: mismo encoder multilingue que large-v3 (ahi vive la
+#     robustez a acentos), decoder podado. ~4.9s -- similar calidad a large-v3
+#     pero ~30% mas rapido en esta GPU, y el beam_size le sale casi gratis
+#     (el cuello de botella es el encoder, no la busqueda del decoder).
+#   - distil-large-v3.5: SOLO INGLES (no multilingue), pero toda su capacidad
+#     esta dedicada a un unico idioma -- buena opcion si las charlas van a ser
+#     en ingles con acentos internacionales (frances, fines, etc.) y no vas a
+#     necesitar detectar/transcribir otros idiomas.
+WHISPER_PRESETS: dict[str, dict] = {
+    "cpu_liviano": {"label": "CPU - Liviano (tiny)", "model": "tiny", "device": "cpu", "compute_type": "int8", "beam_size": 1},
+    "cpu_medio": {"label": "CPU - Medio (small)", "model": "small", "device": "cpu", "compute_type": "int8", "beam_size": 1},
+    "cpu_pesado": {"label": "CPU - Pesado (medium, requiere CPU multi-core)", "model": "medium", "device": "cpu", "compute_type": "int8", "beam_size": 1},
+    "gpu_liviano": {"label": "GPU NVIDIA - Liviano (small)", "model": "small", "device": "cuda", "compute_type": "float16", "beam_size": 5},
+    "gpu_medio": {"label": "GPU NVIDIA - Medio (medium)", "model": "medium", "device": "cuda", "compute_type": "float16", "beam_size": 5},
+    "gpu_pesado": {"label": "GPU NVIDIA - Pesado, multilingue (large-v3-turbo)", "model": "large-v3-turbo", "device": "cuda", "compute_type": "float16", "beam_size": 5},
+    "gpu_pesado_en": {"label": "GPU NVIDIA - Pesado, SOLO INGLES (distil-large-v3.5)", "model": "distil-large-v3.5", "device": "cuda", "compute_type": "float16", "beam_size": 5},
+}
+DEFAULT_WHISPER_PRESET = settings.default_whisper_preset if settings.default_whisper_preset in WHISPER_PRESETS else "cpu_medio"
+
+# Presets de whisper.cpp (motor "whispercpp"): a diferencia de faster-whisper,
+# pywhispercpp no expone un parametro de "device" en runtime -- la aceleracion
+# de hardware (Metal en Apple Silicon, CUDA si se compilo con esa opcion) esta
+# fija en como se compilo el binario que bajaste de PyPI, no se elige por sesion.
+# Medido en CPU (Ryzen 3 4100, 4 threads) con audio real de ~11s: `medium` y
+# `large-v3-turbo`, aun cuantizados a q5_0, superan tiempo real (RTF 1.2 y 1.7)
+# -- por eso NO se ofrecen como preset aca, el techo util en CPU modesta es
+# `small` (RTF ~0.42). En Apple Silicon con Metal podrian andar mejor, pero no
+# esta validado en este proyecto -- si probas ahi y te va bien, se puede sumar
+# un preset especifico.
+WHISPERCPP_PRESETS: dict[str, dict] = {
+    "wcpp_liviano": {"label": "whisper.cpp - Liviano (tiny)", "model": "tiny"},
+    "wcpp_medio": {"label": "whisper.cpp - Medio (base)", "model": "base"},
+    "wcpp_pesado": {"label": "whisper.cpp - Pesado (small)", "model": "small"},
+}
+DEFAULT_WHISPERCPP_PRESET = (
+    settings.default_whispercpp_preset if settings.default_whispercpp_preset in WHISPERCPP_PRESETS else "wcpp_medio"
+)
 
 SAMPLE_RATE = 16000
 FRAME_MS = 30
@@ -29,68 +113,97 @@ def pcm_f32_to_wav_bytes(audio_f32: np.ndarray, sample_rate: int = SAMPLE_RATE) 
     return buf.getvalue()
 
 _executor = ThreadPoolExecutor(max_workers=settings.whisper_workers)
-_model: WhisperModel | None = None
-_model_lock = asyncio.Lock()
+_models: dict[str, WhisperModel] = {}  # cacheados por preset -- cada uno pesa su propia RAM/VRAM
 
 
-def get_model() -> WhisperModel:
-    global _model
-    if _model is None:
-        _model = WhisperModel(
-            settings.whisper_model,
-            device=settings.whisper_device,
-            compute_type=settings.whisper_compute_type,
+def get_model(preset_key: str) -> WhisperModel:
+    preset = WHISPER_PRESETS.get(preset_key, WHISPER_PRESETS[DEFAULT_WHISPER_PRESET])
+    if preset_key not in _models:
+        _models[preset_key] = WhisperModel(
+            preset["model"],
+            device=preset["device"],
+            compute_type=preset["compute_type"],
         )
-    return _model
+    return _models[preset_key]
 
 
-def _transcribe_sync(audio_f32: np.ndarray, language: str | None):
-    model = get_model()
+# Umbral para detectar "alucinaciones" de whisper: cuando el audio es silencio
+# o ruido de fondo que nuestro VAD (webrtcvad) clasifico como voz por error, el
+# modelo no siempre devuelve texto vacio -- a veces "alucina" frases comunes de
+# su entrenamiento (tipicamente cierres de video de YouTube, tipo "Thanks for
+# watching!"). OJO: en esos casos avg_logprob suele salir normal o incluso alto
+# (el modelo esta "seguro" de lo que inventa), asi que no sirve como señal --
+# medido con audio real: no_speech_prob ronda 0.11 en habla real y 0.88-0.94
+# en silencio/ruido puro, con un salto bien limpio entre ambos.
+HALLUCINATION_NO_SPEECH_PROB = 0.6
+HALLUCINATION_COMPRESSION_RATIO = 2.4  # texto repetitivo/gibberish, señal aparte
+
+
+def _is_hallucinated_segment(segment) -> bool:
+    return segment.no_speech_prob > HALLUCINATION_NO_SPEECH_PROB or segment.compression_ratio > HALLUCINATION_COMPRESSION_RATIO
+
+
+def _transcribe_sync(audio_f32: np.ndarray, language: str | None, preset_key: str):
+    preset = WHISPER_PRESETS.get(preset_key, WHISPER_PRESETS[DEFAULT_WHISPER_PRESET])
+    model = get_model(preset_key)
     segments, info = model.transcribe(
         audio_f32,
         language=language,
         vad_filter=False,  # el VAD ya lo hicimos nosotros al armar el segmento
-        beam_size=1,
+        beam_size=preset["beam_size"],
         condition_on_previous_text=False,
     )
-    text = " ".join(s.text.strip() for s in segments).strip()
+    text = " ".join(s.text.strip() for s in segments if not _is_hallucinated_segment(s)).strip()
     return text, info.language
 
 
-async def transcribe_chunk(audio_f32: np.ndarray, language: str | None = None):
+async def transcribe_chunk(audio_f32: np.ndarray, language: str | None = None, preset_key: str = DEFAULT_WHISPER_PRESET):
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_executor, _transcribe_sync, audio_f32, language)
+    return await loop.run_in_executor(_executor, _transcribe_sync, audio_f32, language, preset_key)
 
 
-_whispercpp_model = None
+_whispercpp_models: dict = {}  # cacheados por preset (Model de pywhispercpp)
+
+# whisper.cpp marca eventos de no-habla con un token entre corchetes/parentesis
+# (ej. "[BLANK_AUDIO]", "[SILENCE]", "(wind blowing)") en vez de alucinar texto
+# como faster-whisper -- pero si no lo filtramos, ese marcador literal se manda
+# igual como si fuera el subtitulo.
+_NON_SPEECH_MARKER_RE = re.compile(r"^[\[\(].*[\]\)]$")
 
 
-def get_whispercpp_model():
-    global _whispercpp_model
-    if _whispercpp_model is None:
-        from pywhispercpp.model import Model as WhisperCppModel
+def get_whispercpp_model(preset_key: str):
+    from pywhispercpp.model import Model as WhisperCppModel
 
-        _whispercpp_model = WhisperCppModel(
-            settings.whispercpp_model,
+    preset = WHISPERCPP_PRESETS.get(preset_key, WHISPERCPP_PRESETS[DEFAULT_WHISPERCPP_PRESET])
+    if preset_key not in _whispercpp_models:
+        _whispercpp_models[preset_key] = WhisperCppModel(
+            preset["model"],
             n_threads=settings.whispercpp_threads,
             redirect_whispercpp_logs_to=None,
             print_progress=False,
             print_realtime=False,
         )
-    return _whispercpp_model
+    return _whispercpp_models[preset_key]
 
 
-def _transcribe_whispercpp_sync(audio_f32: np.ndarray, language: str | None):
-    model = get_whispercpp_model()
-    lang_kwargs = {"language": language} if language else {"detect_language": True}
+def _transcribe_whispercpp_sync(audio_f32: np.ndarray, language: str | None, preset_key: str):
+    model = get_whispercpp_model(preset_key)
+    # OJO: `detect_language=True` en whisper.cpp/pywhispercpp NO transcribe --
+    # solo hace deteccion de idioma y devuelve 0 segmentos (bug silencioso: el
+    # segmento se descarta como si no hubiera voz). Para auto-detectar Y
+    # transcribir en la misma pasada hay que pasar language="auto".
+    lang_kwargs = {"language": language} if language else {"language": "auto"}
     segments = model.transcribe(audio_f32, **lang_kwargs)
-    text = " ".join(s.text.strip() for s in segments).strip()
+    parts = [s.text.strip() for s in segments if not _NON_SPEECH_MARKER_RE.match(s.text.strip())]
+    text = " ".join(parts).strip()
     return text, language or "en"
 
 
-async def transcribe_chunk_whispercpp(audio_f32: np.ndarray, language: str | None = None):
+async def transcribe_chunk_whispercpp(
+    audio_f32: np.ndarray, language: str | None = None, preset_key: str = DEFAULT_WHISPERCPP_PRESET
+):
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_executor, _transcribe_whispercpp_sync, audio_f32, language)
+    return await loop.run_in_executor(_executor, _transcribe_whispercpp_sync, audio_f32, language, preset_key)
 
 
 class StreamBuffer:

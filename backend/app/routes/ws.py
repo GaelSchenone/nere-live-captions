@@ -5,9 +5,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .. import engines
 from ..asr import FixedChunker, StreamBuffer
-from ..config import settings
 from ..sessions import CaptionSegment, manager
-from ..translate import translate_text
 
 router = APIRouter()
 
@@ -24,29 +22,16 @@ def _pcm16_levels(data: bytes) -> tuple[float, int]:
     return rms, peak
 
 
-def _targets_for(lang: str) -> set[str]:
-    # Espanol para charlas en otros idiomas; ademas ingles cuando la charla es en espanol.
-    return {"en"} if lang == "es" else {"es"}
-
-
 async def _process_segment(session, seq: int, audio_f32) -> CaptionSegment | None:
     t0 = time.time()
-    text, detected_lang = await engines.transcribe(session.engine, audio_f32, session.source_lang)
+    text, detected_lang = await engines.transcribe(
+        session.engine, audio_f32, session.source_lang, session.whisper_preset
+    )
     if not text:
         return None
 
     lang = session.source_lang or detected_lang
     translations = {}
-    # La traduccion es best-effort: un fallo (key faltante, cuota 429 de Gemini,
-    # etc.) no puede descartar el subtitulo -- se emite igual con el texto original
-    # y las traducciones que hayan salido; todo queda visible en /monitor.
-    if settings.gemini_api_key:
-        for tgt in _targets_for(lang):
-            try:
-                translations[tgt] = await translate_text(text, lang, tgt, session.glossary)
-            except Exception as e:
-                session.monitor_stats["errors"] += 1
-                session.monitor_stats["last_error"] = f"traduccion a {tgt}: {e}"
 
     t1 = time.time()
     session.monitor_stats["last_latency_ms"] = round((t1 - t0) * 1000)
@@ -68,6 +53,7 @@ async def ingest(ws: WebSocket, session_id: str):
         await ws.close(code=4404)
         return
 
+    session.ingest_ws.add(ws)
     buf = StreamBuffer() if session.chunking != "fixed" else FixedChunker()
     seq = 0
     try:
@@ -95,6 +81,7 @@ async def ingest(ws: WebSocket, session_id: str):
     except WebSocketDisconnect:
         pass
     finally:
+        session.ingest_ws.discard(ws)
         final_audio = buf.flush_final()
         if final_audio is not None:
             try:

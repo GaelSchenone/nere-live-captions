@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from ..asr import DEFAULT_WHISPER_PRESET, DEFAULT_WHISPERCPP_PRESET, WHISPER_PRESETS, WHISPERCPP_PRESETS
 from ..config import settings
 from ..engines import ENGINES
 from ..export import export_srt, export_txt, export_vtt
@@ -27,6 +28,20 @@ def _vad_settings_dict():
         "vad_silence_ms": settings.vad_silence_ms,
         "vad_max_buffer_seconds": settings.vad_max_buffer_seconds,
         "vad_min_speech_ms": settings.vad_min_speech_ms,
+    }
+
+
+@router.get("/whisper-presets")
+async def get_whisper_presets():
+    return {
+        "local_whisper": {
+            "default": DEFAULT_WHISPER_PRESET,
+            "presets": [{"key": key, "label": p["label"]} for key, p in WHISPER_PRESETS.items()],
+        },
+        "whispercpp": {
+            "default": DEFAULT_WHISPERCPP_PRESET,
+            "presets": [{"key": key, "label": p["label"]} for key, p in WHISPERCPP_PRESETS.items()],
+        },
     }
 
 
@@ -66,6 +81,7 @@ class CreateSessionRequest(BaseModel):
     session_id: Optional[str] = None
     engine: Optional[str] = None
     chunking: Optional[str] = None
+    whisper_preset: Optional[str] = None
 
 
 @router.post("/sessions")
@@ -74,9 +90,13 @@ async def create_session(req: CreateSessionRequest):
         raise HTTPException(400, f"engine debe ser uno de: {', '.join(ENGINES)}")
     if req.chunking and req.chunking not in CHUNKING_MODES:
         raise HTTPException(400, f"chunking debe ser uno de: {', '.join(CHUNKING_MODES)}")
+    if req.whisper_preset:
+        valid_presets = WHISPERCPP_PRESETS if req.engine == "whispercpp" else WHISPER_PRESETS
+        if req.whisper_preset not in valid_presets:
+            raise HTTPException(400, f"whisper_preset debe ser uno de: {', '.join(valid_presets)}")
     try:
         session = await manager.create(
-            req.name, req.source_lang, req.glossary, req.session_id, req.engine, req.chunking
+            req.name, req.source_lang, req.glossary, req.session_id, req.engine, req.chunking, req.whisper_preset
         )
     except ValueError as e:
         raise HTTPException(409, str(e))
@@ -86,6 +106,7 @@ async def create_session(req: CreateSessionRequest):
         "source_lang": session.source_lang,
         "engine": session.engine,
         "chunking": session.chunking,
+        "whisper_preset": session.whisper_preset,
     }
 
 
@@ -99,6 +120,7 @@ async def list_sessions():
             "source_lang": s.source_lang,
             "engine": s.engine,
             "chunking": s.chunking,
+            "whisper_preset": s.whisper_preset,
             "created_at": s.created_at,
             "stats": s.monitor_stats,
             "audience_count": len(s.audience_ws),
@@ -120,6 +142,7 @@ async def get_session(session_id: str):
         "source_lang": s.source_lang,
         "engine": s.engine,
         "chunking": s.chunking,
+        "whisper_preset": s.whisper_preset,
         "stats": s.monitor_stats,
         "segment_count": len(s.segments),
     }
@@ -131,13 +154,17 @@ async def end_session(session_id: str):
     if not s:
         raise HTTPException(404, "session not found")
     s.status = "ended"
+    await manager.close_ingest(s)
     return {"ok": True}
 
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    if not manager.remove(session_id):
+    s = manager.get(session_id)
+    if not s:
         raise HTTPException(404, "session not found")
+    await manager.close_ingest(s)
+    manager.remove(session_id)
     return {"ok": True}
 
 

@@ -1,14 +1,10 @@
-import logging
 import pathlib
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import settings
 from .routes import api, ws
-
-logger = logging.getLogger("uvicorn.error")
 
 BASE_DIR = pathlib.Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
@@ -32,12 +28,6 @@ app = FastAPI(title="N.E.R.E — Núcleo de Escucha y Reconocimiento en Eventos"
 
 app.include_router(api.router)
 app.include_router(ws.router)
-
-if not settings.gemini_api_key:
-    logger.warning(
-        "GEMINI_API_KEY no está configurada: la traducción automática fallará. "
-        "Los subtítulos saldrán solo en el idioma original."
-    )
 
 app.mount("/assets", NoCacheStaticFiles(directory=STATIC_DIR), name="assets")
 

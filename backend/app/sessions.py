@@ -3,6 +3,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from .asr import DEFAULT_WHISPER_PRESET, DEFAULT_WHISPERCPP_PRESET
 from .engines import DEFAULT_ENGINE
 
 
@@ -24,10 +25,12 @@ class Session:
     glossary: list[str]
     engine: str = DEFAULT_ENGINE  # local_whisper | cloud_whisper | gemini_audio
     chunking: str = "vad"  # vad | fixed (fixed = sin VAD, para diagnostico)
+    whisper_preset: str = DEFAULT_WHISPER_PRESET  # solo aplica con engine local_whisper o whispercpp
     created_at: float = field(default_factory=time.time)
     status: str = "live"  # live | ended
     segments: list[CaptionSegment] = field(default_factory=list)
     audience_ws: set = field(default_factory=set)
+    ingest_ws: set = field(default_factory=set)  # WS del operador mandando audio; se cierran al terminar la sesion
     monitor_stats: dict = field(
         default_factory=lambda: {
             "chunks_received": 0,
@@ -56,8 +59,11 @@ class SessionManager:
         session_id: str | None = None,
         engine: str | None = None,
         chunking: str | None = None,
+        whisper_preset: str | None = None,
     ) -> Session:
         sid = session_id or str(uuid.uuid4())[:8]
+        resolved_engine = engine or DEFAULT_ENGINE
+        default_preset = DEFAULT_WHISPERCPP_PRESET if resolved_engine == "whispercpp" else DEFAULT_WHISPER_PRESET
         async with self._lock:
             if sid in self.sessions:
                 raise ValueError(f"session '{sid}' already exists")
@@ -66,8 +72,9 @@ class SessionManager:
                 name=name,
                 source_lang=source_lang,
                 glossary=glossary or [],
-                engine=engine or DEFAULT_ENGINE,
+                engine=resolved_engine,
                 chunking=chunking or "vad",
+                whisper_preset=whisper_preset or default_preset,
             )
             self.sessions[sid] = session
         return session
@@ -80,6 +87,17 @@ class SessionManager:
 
     def remove(self, session_id: str) -> bool:
         return self.sessions.pop(session_id, None) is not None
+
+    async def close_ingest(self, session: Session):
+        # Corta las conexiones del operador que siguen mandando audio -- si no,
+        # una sesion "terminada" sigue consumiendo CPU/GPU compartida (VAD +
+        # transcripcion) por una pestaña que nadie cerro.
+        for ws in list(session.ingest_ws):
+            try:
+                await ws.close(code=4000)
+            except Exception:
+                pass
+        session.ingest_ws.clear()
 
     async def broadcast(self, session: Session, payload: dict):
         dead = []
