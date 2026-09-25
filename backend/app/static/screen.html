@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Subtítulos — Pantalla</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #caption {
+      height: 100%;
+      overflow-y: auto;
+      padding: 4vh 5vw;
+      text-align: left;
+      line-height: 1.4;
+      color: #fff;
+    }
+    #caption.muted { color: #555; display: flex; align-items: center; justify-content: center; text-align: center; }
+    #caption .caption-line { padding: 0.2em 0; }
+    #caption .caption-line:last-child { font-weight: 700; }
+
+    #qr-box {
+      position: fixed;
+      top: 3vh;
+      right: 3vw;
+      background: #fff;
+      padding: 10px;
+      border-radius: 8px;
+      text-align: center;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      display: none;
+    }
+    #qr-box img { display: block; width: 110px; height: 110px; }
+    #qr-box span { display: block; margin-top: 4px; font-size: 11px; color: #111; }
+  </style>
+</head>
+<body>
+  <div id="caption" class="muted">Esperando subtítulos...</div>
+
+  <div id="qr-box">
+    <img id="qr-img" alt="QR para unirse desde el celular" />
+    <span>Escaneá para seguirlo en tu celular</span>
+  </div>
+
+  <script src="/assets/captions-ws.js"></script>
+  <script>
+    // Pantalla fisica de la sala (TV/proyector): display puro, sin ajustes ni
+    // selector propios -- todo (idioma, color, fondo, tamaño, contorno) llega
+    // del servidor, configurado desde /operator. Muestra el historial
+    // acumulado (como /audience) pero pensada para leerse de lejos, no desde
+    // el celular de cada uno.
+    const params = new URLSearchParams(location.search);
+    const sessionId = params.get('session');
+    const captionEl = document.getElementById('caption');
+
+    const FONT_STACKS = {
+      system: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      serif: 'Georgia, "Times New Roman", serif',
+      monospace: 'Menlo, Monaco, "Courier New", monospace',
+      display: 'Impact, "Arial Black", sans-serif',
+    };
+
+    let style = null;
+    const MAX_LINES = 300;
+
+    function applyStyle() {
+      if (!style) return;
+      captionEl.style.fontFamily = FONT_STACKS[style.font_family] || FONT_STACKS.system;
+      captionEl.style.color = style.text_color;
+      captionEl.style.fontSize = style.font_size + 'px';
+      captionEl.style.webkitTextStroke = style.outline_enabled ? `2px ${style.outline_color}` : '';
+      document.body.style.background = style.bg_mode === 'solid' ? style.bg_color : '#000';
+      captionEl.style.background = style.bg_mode === 'behind_text' ? style.bg_color : 'transparent';
+    }
+
+    function appendCaption(data) {
+      if (!style) return;
+      const lang = style.lang;
+      const text = lang === 'original' ? data.original : (data.translations[lang] || data.original);
+      if (!captionEl.querySelector('.caption-line')) captionEl.textContent = '';
+      captionEl.classList.remove('muted');
+
+      const div = document.createElement('div');
+      div.className = 'caption-line';
+      div.textContent = `- ${text}`;
+      captionEl.appendChild(div);
+      while (captionEl.children.length > MAX_LINES) captionEl.removeChild(captionEl.firstChild);
+      captionEl.scrollTop = captionEl.scrollHeight;
+    }
+
+    function showQr() {
+      const box = document.getElementById('qr-box');
+      const img = document.getElementById('qr-img');
+      img.src = `/api/sessions/${sessionId}/audience-qr.svg`;
+      box.style.display = 'block';
+    }
+
+    function connect() {
+      if (!sessionId) {
+        captionEl.textContent = 'Falta ?session=ID en la URL';
+        return;
+      }
+      showQr();
+      connectCaptions(sessionId, (data) => {
+        if (data.type === 'screen_style') {
+          style = data;
+          applyStyle();
+        } else if (data.type === 'caption') {
+          appendCaption(data);
+        }
+      });
+    }
+    connect();
+  </script>
+</body>
+</html>

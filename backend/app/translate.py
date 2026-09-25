@@ -21,6 +21,8 @@ MODELS_DIR = Path(user_data_dir("nere-live-captions")) / "translate_models"
 PACKAGE_URLS = {
     ("en", "es"): "https://argos-net.com/v1/translate-en_es-1_0.argosmodel",
     ("es", "en"): "https://argos-net.com/v1/translate-es_en-1_9.argosmodel",
+    ("pt", "es"): "https://argos-net.com/v1/translate-pt_es-1_0.argosmodel",
+    ("pt", "en"): "https://argos-net.com/v1/translate-pt_en-1_9.argosmodel",
 }
 
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -69,7 +71,15 @@ class _SentencePieceBackend:
     def translate(self, text: str) -> str:
         tokens = self.sp.encode(text, out_type=str)
         result = self.translator.translate_batch([tokens])
-        return self.sp.decode(result[0].hypotheses[0])
+        out_tokens = result[0].hypotheses[0]
+        # OJO: probado que `self.sp.decode(out_tokens)` puede unir mal las
+        # piezas para algunos paquetes (ej. pt->en) -- deja el marcador "▁"
+        # pegado a la palabra de al lado en vez de convertirlo en espacio,
+        # de forma inconsistente. El detokenizado manual (unir + reemplazar
+        # "▁" por espacio) es el estandar de SentencePiece y no depende de
+        # ese comportamiento -- probado que da identico resultado en los
+        # paquetes donde decode() si andaba bien, y arregla el que no.
+        return "".join(out_tokens).replace("▁", " ").strip()
 
 
 class _MosesBpeBackend:

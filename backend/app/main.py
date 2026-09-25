@@ -55,3 +55,8 @@ async def monitor_page():
 @app.get("/overlay")
 async def overlay_page():
     return FileResponse(STATIC_DIR / "overlay.html", headers=NO_CACHE_HEADERS)
+
+
+@app.get("/screen")
+async def screen_page():
+    return FileResponse(STATIC_DIR / "screen.html", headers=NO_CACHE_HEADERS)

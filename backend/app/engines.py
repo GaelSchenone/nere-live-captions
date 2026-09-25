@@ -6,7 +6,7 @@ from google.genai import types
 from . import asr
 from .config import settings
 
-ENGINES = ["local_whisper", "whispercpp", "cloud_whisper", "gemini_audio"]
+ENGINES = ["local_whisper", "whispercpp", "cloud_whisper", "gemini_audio", "gemini_live"]
 DEFAULT_ENGINE = settings.default_engine if settings.default_engine in ENGINES else "local_whisper"
 
 LANG_NAMES = {

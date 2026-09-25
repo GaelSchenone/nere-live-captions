@@ -4,108 +4,191 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Subtítulos — N.E.R.E</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap');
+
     :root {
-      --bg: #000000;
-      --fg: #ffffff;
-      --panel-bg: #16181d;
-      --panel-border: #2a2d34;
-      --accent: #2c6e49;
+      --pink: #eea7c4;
+      --mac-black: #000000;
+      --mac-white: #ffffff;
+      --mac-gray: #c8c8c8;
     }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       height: 100%;
-      background: #0b0c0f;
-      color: #eee;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      -webkit-tap-highlight-color: transparent;
-    }
-    body {
-      display: flex;
-      flex-direction: column;
       overflow: hidden;
+      font-family: 'Silkscreen', 'Courier New', monospace;
+      font-size: 13px;
+    }
+    html { background: var(--pink); }
+    body { background: transparent; display: flex; flex-direction: column; }
+
+    canvas#dither-bg {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: -1;
+      image-rendering: pixelated;
     }
 
-    #topbar {
+    /* ---------- Paneles tipo "ventana", fijos (sin drag) ---------- */
+    .panel {
+      background: var(--mac-white);
+      border: 2px solid var(--mac-black);
+      box-shadow: 3px 3px 0 rgba(0,0,0,0.55);
+      margin: 8px;
       flex: 0 0 auto;
+    }
+    .panel-titlebar {
+      height: 22px;
+      background: var(--mac-gray);
+      border-bottom: 2px solid var(--mac-black);
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .panel-body { padding: 8px; }
+
+    #controls.panel { display: flex; flex-direction: column; }
+    #controls-row {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      padding: 10px 12px;
-      background: var(--panel-bg);
-      border-bottom: 1px solid var(--panel-border);
+      align-items: flex-end;
     }
-    #topbar .field {
-      flex: 1 1 140px;
-      min-width: 110px;
+    #controls-row .field {
+      flex: 1 1 120px;
+      min-width: 100px;
       display: flex;
       flex-direction: column;
       gap: 2px;
     }
-    #topbar label {
-      font-size: 10px;
+    #controls-row label {
+      font-size: 9px;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: #9aa1af;
+      letter-spacing: 0.03em;
+      color: #555;
     }
-    #topbar select {
+    #controls-row select, #settings-btn {
       width: 100%;
-      padding: 8px;
-      font-size: 14px;
-      background: #0b0c0f;
-      color: #eee;
-      border: 1px solid var(--panel-border);
-      border-radius: 6px;
+      padding: 7px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      background: var(--mac-white);
+      border: 1px solid var(--mac-black);
+      border-radius: 0;
     }
+    #settings-btn { cursor: pointer; flex: 0 0 auto; width: auto; padding: 7px 12px; }
 
+    /* ---------- Menu compacto de ajustes de lectura ---------- */
+    #settings-wrap { position: relative; flex: 0 0 auto; }
+    #settings-panel {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 4px;
+      width: 220px;
+      z-index: 20;
+    }
+    #settings-panel.open { display: block; }
+    #settings-panel label {
+      display: block;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #555;
+      margin: 8px 0 3px;
+    }
+    #settings-panel label:first-child { margin-top: 0; }
+    #settings-panel select, #settings-panel input[type="range"] {
+      width: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+    }
+    #settings-panel select { padding: 6px; border: 1px solid var(--mac-black); }
+
+    /* ---------- Escenario de subtitulos ---------- */
     #stage {
       flex: 1 1 auto;
       min-height: 0;
-      background: var(--bg);
       display: flex;
     }
+    #stage.panel { display: flex; flex-direction: column; }
     #caption {
       flex: 1 1 auto;
       overflow-y: auto;
       padding: 16px;
       text-align: left;
       line-height: 1.5;
-      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: clamp(1rem, 4.5vw, 1.4rem);
     }
-    #caption.muted { color: #6b7280; display: flex; align-items: center; justify-content: center; text-align: center; }
+    #caption.muted { color: #6b7280 !important; display: flex; align-items: center; justify-content: center; text-align: center; }
     #caption .caption-line { padding: 0.2em 0; }
     #caption .caption-line:last-child { font-weight: 700; }
   </style>
 </head>
 <body>
-  <div id="topbar">
-    <div class="field">
-      <label for="session_select">Charla</label>
-      <select id="session_select"></select>
-    </div>
-    <div class="field">
-      <label for="lang_select">Idioma</label>
-      <select id="lang_select">
-        <option value="es">Español</option>
-        <option value="en">Inglés</option>
-        <option value="original">Original (sin traducir)</option>
-      </select>
-    </div>
-    <div class="field">
-      <label for="font_select">Fuente</label>
-      <select id="font_select">
-        <option value="system">Sans (sistema)</option>
-        <option value="serif">Serif</option>
-        <option value="monospace">Monoespaciada</option>
-        <option value="display">Display / impacto</option>
-        <option value="dyslexic">Legible (OpenDyslexic-like)</option>
-      </select>
+  <canvas id="dither-bg"></canvas>
+
+  <div id="controls" class="panel">
+    <div class="panel-titlebar">Vista de audiencia</div>
+    <div class="panel-body">
+      <div id="controls-row">
+        <div class="field">
+          <label for="session_select">Charla</label>
+          <select id="session_select"></select>
+        </div>
+        <div class="field">
+          <label for="lang_select">Idioma</label>
+          <select id="lang_select">
+            <option value="es">Español</option>
+            <option value="en">Inglés</option>
+            <option value="original">Original (sin traducir)</option>
+          </select>
+        </div>
+        <div id="settings-wrap">
+          <button id="settings-btn" type="button">⚙ Ajustes</button>
+          <div id="settings-panel" class="panel">
+            <div class="panel-body">
+              <label for="font_select">Fuente</label>
+              <select id="font_select">
+                <option value="system">Sans (sistema)</option>
+                <option value="serif">Serif</option>
+                <option value="monospace">Monoespaciada</option>
+                <option value="display">Display / impacto</option>
+                <option value="dyslexic">Legible (dislexia)</option>
+              </select>
+
+              <label for="theme_select">Tema</label>
+              <select id="theme_select">
+                <option value="dark">Oscuro</option>
+                <option value="light">Claro</option>
+                <option value="hc_dark">Alto contraste oscuro</option>
+                <option value="hc_light">Alto contraste claro</option>
+              </select>
+
+              <label for="size_range">Tamaño de letra (<span id="size_val"></span>px)</label>
+              <input type="range" id="size_range" min="14" max="40" step="1" value="20" />
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div id="stage"><div id="caption" class="muted">Elegí una charla para ver los subtítulos.</div></div>
+  <div id="stage" class="panel">
+    <div class="panel-titlebar">Subtítulos en vivo</div>
+    <div id="caption" class="muted">Elegí una charla para ver los subtítulos.</div>
+  </div>
 
+  <script src="/assets/dither-bg.js"></script>
   <script src="/assets/captions-ws.js"></script>
   <script>
     const FONT_STACKS = {
@@ -118,40 +201,78 @@
       // esta instalada por defecto en casi ningun sistema).
       dyslexic: 'Verdana, "Comic Sans MS", sans-serif',
     };
-    const FONT_STORAGE_KEY = 'nere_audience_font_v1';
+    const THEMES = {
+      dark: { bg: '#0b0c0f', fg: '#eeeeee' },
+      light: { bg: '#f4f4f4', fg: '#111111' },
+      hc_dark: { bg: '#000000', fg: '#ffe600' },
+      hc_light: { bg: '#ffffff', fg: '#000000' },
+    };
+    const PREFS_KEY = 'nere_audience_prefs_v2';
 
     const sessionSelect = document.getElementById('session_select');
     const langSelect = document.getElementById('lang_select');
     const fontSelect = document.getElementById('font_select');
+    const themeSelect = document.getElementById('theme_select');
+    const sizeRange = document.getElementById('size_range');
+    const sizeVal = document.getElementById('size_val');
+    const settingsBtn = document.getElementById('settings-btn');
+    const settingsPanel = document.getElementById('settings-panel');
     const captionEl = document.getElementById('caption');
     let captionsHandle = null;
-    let currentStyle = null; // ultimo audience_style que mando el servidor
 
     const params = new URLSearchParams(location.search);
 
-    // ---------- Fuente: eleccion personal de quien lee, no del operador ----------
-    function applyFont() {
-      const saved = localStorage.getItem(FONT_STORAGE_KEY);
-      const family = saved || (currentStyle && currentStyle.font_family) || 'system';
-      fontSelect.value = family;
-      captionEl.style.fontFamily = FONT_STACKS[family] || FONT_STACKS.system;
+    // ---------- Preferencias de lectura: eleccion personal de quien lee ----------
+    // Look fijo por defecto para esta vista -- es el celular de cada persona,
+    // no algo que controle el operador (eso es /screen y /overlay). Acá cada
+    // quien elige su propio tema/fuente/tamaño y queda guardado en su navegador.
+    function loadPrefs() {
+      try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch (e) { return {}; }
     }
-    fontSelect.addEventListener('change', () => {
-      try { localStorage.setItem(FONT_STORAGE_KEY, fontSelect.value); } catch (e) {}
-      applyFont();
-    });
+    function savePrefs(p) {
+      try { localStorage.setItem(PREFS_KEY, JSON.stringify(p)); } catch (e) {}
+    }
 
-    // ---------- Estilo que manda el operador (color, fondo, tamaño, contorno) ----------
-    function applyStyle(s) {
-      currentStyle = s;
-      applyFont();
-      captionEl.style.color = s.text_color;
-      captionEl.style.fontSize = s.font_size + 'px';
-      captionEl.style.webkitTextStroke = s.outline_enabled ? `1px ${s.outline_color}` : '';
-      const stage = document.getElementById('stage');
-      stage.style.background = s.bg_mode === 'solid' ? s.bg_color : '#0b0c0f';
-      captionEl.style.background = s.bg_mode === 'behind_text' ? s.bg_color : 'transparent';
+    function applyPrefs() {
+      const p = loadPrefs();
+      const family = p.font_family || 'system';
+      const theme = THEMES[p.theme] ? p.theme : 'dark';
+      const size = p.font_size || 20;
+
+      fontSelect.value = family;
+      themeSelect.value = theme;
+      sizeRange.value = size;
+      sizeVal.textContent = size;
+
+      captionEl.style.fontFamily = FONT_STACKS[family] || FONT_STACKS.system;
+      captionEl.style.setProperty('--read-bg', THEMES[theme].bg);
+      captionEl.style.background = THEMES[theme].bg;
+      captionEl.style.color = THEMES[theme].fg;
+      captionEl.style.fontSize = size + 'px';
     }
+
+    [fontSelect, themeSelect, sizeRange].forEach((el) => {
+      el.addEventListener('input', () => {
+        sizeVal.textContent = sizeRange.value;
+        savePrefs({
+          font_family: fontSelect.value,
+          theme: themeSelect.value,
+          font_size: Number(sizeRange.value),
+        });
+        applyPrefs();
+      });
+    });
+    applyPrefs();
+
+    settingsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      settingsPanel.classList.toggle('open');
+    });
+    document.addEventListener('click', (e) => {
+      if (!settingsPanel.contains(e.target) && e.target !== settingsBtn) {
+        settingsPanel.classList.remove('open');
+      }
+    });
 
     async function loadSessions() {
       const res = await fetch('/api/sessions');
@@ -190,8 +311,7 @@
       captionEl.classList.add('muted');
       captionEl.textContent = '';
       captionsHandle = connectCaptions(sessionId, (data) => {
-        if (data.type === 'audience_style') applyStyle(data);
-        else if (data.type === 'caption') appendCaption(data);
+        if (data.type === 'caption') appendCaption(data);
       }, (status) => {
         if (status === 'connected' && !captionEl.children.length) {
           captionEl.textContent = 'Conectado. Esperando audio...';

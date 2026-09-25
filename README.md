@@ -60,17 +60,24 @@ Operador (mic/audio de sala)  --PCM16 16kHz-->  WebSocket /ws/ingest/{session}
   - `/` — crear sesiones (charlas), elegir motor de transcripción, y ver cuáles están activas.
   - `/operator?session=ID` — dashboard del expositor: captura audio del mic/sala, espectrograma
     en vivo para verificar que el audio llega, transcripción local de verificación, y control
-    en vivo del look de `/overlay` (ver abajo).
-  - `/audience?session=ID` — la audiencia elige charla + idioma; los subtítulos se van
-    acumulando como un feed (línea nueva abajo, las anteriores arriba con `- `) para poder
-    releer si te perdiste algo, no solo la última frase.
-  - `/overlay?session=ID` — ventana de solo texto para proyectar o usar como Browser Source
-    en OBS/vMix. Es puramente un display: no tiene ajustes propios (ni engranaje ni panel) —
-    todo (idioma, color, tamaño, fondo, contorno) se controla en vivo desde `/operator`, y
-    viaja por WebSocket/servidor, no por `BroadcastChannel` del navegador. Esto importa porque
-    el Browser Source de OBS corre un Chromium embebido aparte del navegador normal: un
-    mecanismo que dependa de compartir el mismo navegador (BroadcastChannel, localStorage)
-    nunca le llega a OBS.
+    en vivo del look de `/overlay` y `/screen` (ver abajo).
+  - `/audience?session=ID` — **el celular de cada persona** (vía QR, por ejemplo). Elige
+    charla + idioma; los subtítulos se van acumulando como un feed (línea nueva abajo, las
+    anteriores arriba con `- `) para poder releer si te perdiste algo, no solo la última
+    frase. Tiene su propio menú compacto de ajustes de lectura (fuente, tema
+    claro/oscuro/alto-contraste, tamaño de letra) guardados en el navegador de cada uno —
+    esto es personal, no lo controla el operador.
+  - `/overlay?session=ID` — ventana de solo texto para usar como Browser Source en OBS/vMix.
+  - `/screen?session=ID` — **la pantalla física de la sala** (TV/proyector). Muestra el mismo
+    feed acumulado que `/audience` pero pensada para leerse de lejos, sin selector propio.
+    Tiene un QR arriba a la derecha (`GET /api/sessions/{id}/audience-qr.svg`) para que la
+    audiencia entre a `/audience` desde su celular escaneando la pantalla directamente.
+  - `/overlay` y `/screen` son puramente displays: no tienen ajustes propios (ni engranaje ni
+    panel) — todo (idioma, color, tamaño, fondo, contorno) se controla en vivo desde
+    `/operator`, y viaja por WebSocket/servidor, no por `BroadcastChannel` del navegador. Esto
+    importa porque el Browser Source de OBS corre un Chromium embebido aparte del navegador
+    normal: un mecanismo que dependa de compartir el mismo navegador (BroadcastChannel,
+    localStorage) nunca le llega a OBS.
   - `/monitor` — panel para el equipo de producción: estado, motor, % de audio detectado
     como voz, latencia, errores por sesión.
 
@@ -120,9 +127,34 @@ comparar calidad/latencia entre varias sesiones de prueba en simultáneo:
 | `whispercpp` | Local (`whisper.cpp` vía `pywhispercpp`) | ninguna | Otro backend de inferencia 100% local. Tiene soporte nativo de Metal en macOS — mejor opción para Apple Silicon. Descarga el `.bin` ggml la primera vez. |
 | `cloud_whisper` | Nube (API de OpenAI) | `OPENAI_API_KEY` | `whisper-1` devuelve idioma detectado; `gpt-4o-mini-transcribe` es más nuevo pero no lo devuelve. Ojo: OpenAI ya no da créditos gratis a cuentas nuevas. |
 | `gemini_audio` | Nube (Gemini, audio directo) | `GEMINI_API_KEY` | Sin paso de VAD-a-texto intermedio: manda el audio del segmento directo a Gemini pidiendo la transcripción. Sin idioma explícito en la sesión, no hay forma de saber qué detectó — conviene fijar `source_lang` al crear la sesión. |
+| `gemini_live` | Nube (Gemini Live API, streaming real) | `GEMINI_API_KEY` | Ver [Gemini Live](#motor-gemini-live-streaming-real) abajo. |
 
 Si un motor en la nube falla (por ejemplo, falta la API key), el error queda visible en
 `/monitor` (columna Errores, con el mensaje al pasar el mouse) en vez de fallar en silencio.
+
+### Motor Gemini Live (streaming real)
+
+A diferencia de los demás motores (mandás el segmento ya cortado por el VAD como un archivo
+completo, una llamada por segmento), `gemini_live` abre una **conexión persistente por
+sesión** a la Live API de Gemini (`gemini-3.5-transcribe-live`) y le va mandando el audio
+en vivo, frame a frame (30ms), a medida que llega -- sin esperar a que el VAD termine de
+cortar el segmento. Pensado para el problema de "un servidor central con 30+ sesiones en
+paralelo": el cómputo pesado lo hace Google, no tu servidor.
+
+- **Latencia medida** (con audio real): ~0.5-0.6s desde que la persona deja de hablar hasta
+  que llega la transcripción final -- sensiblemente mejor que los motores locales bajo carga
+  (y sin competir por la misma GPU/CPU que otras sesiones).
+- **Los límites de turno se marcan a mano** (`activity_start`/`activity_end`), usando
+  nuestro propio VAD (mismo criterio que `StreamBuffer`, incluyendo el corte forzado por
+  duración máxima) -- probado que si se deja la detección de actividad en automático, el
+  modelo transcribe el primer turno de habla y después dejaba de responder aunque se le
+  siga mandando audio.
+- **Calidad**: es un modelo preview: en las pruebas se vieron glitches ocasionales de
+  reconocimiento (una palabra rara mezclada con la siguiente) -- razonable para un motor en
+  preview, pero no esperes la misma consistencia que `gemini_audio`/Whisper todavía.
+- Solo transcribe (no traduce) -- la traducción sigue siendo el NMT local de siempre.
+  Existe tambien `gemini-3.5-live-translate-preview`, que podría hacer transcripción+
+  traducción en un solo paso; no está integrado (queda para explorar más adelante).
 
 ### Perfiles de Whisper (CPU/GPU, por motor)
 
@@ -241,10 +273,12 @@ Además del motor, cada sesión elige cómo se cortan los segmentos de audio:
 Cada segmento transcripto se traduce con [CTranslate2](https://github.com/OpenNMT/CTranslate2)
 (el mismo motor de inferencia que usa `faster-whisper`) cargando modelos de
 [Argos Translate](https://www.argosopentech.com/) directo -- **sin** la librería
-`argostranslate` (ver por qué abajo), sin LLM, sin API externa. Español↔inglés por ahora
-(`backend/app/translate.py`, dict `PACKAGE_URLS`); agregar un idioma más es sumar una entrada
-con la URL del paquete `.argosmodel` correspondiente del
-[índice de Argos](https://github.com/argosopentech/argospm-index).
+`argostranslate` (ver por qué abajo), sin LLM, sin API externa. Español↔inglés y
+portugués→español/inglés (`backend/app/translate.py`, dict `PACKAGE_URLS`); agregar un idioma
+más es sumar una entrada con la URL del paquete `.argosmodel` correspondiente del
+[índice de Argos](https://github.com/argosopentech/argospm-index) -- pero **probalo con texto
+real antes de darlo por andando** (ver el bug de `sentencepiece` más abajo, encontrado
+justamente al sumar portugués).
 
 - **Primera vez que se usa un par de idiomas**: descarga el paquete (~90-285MB) a
   `~/.local/share/nere-live-captions/translate_models/` y lo cachea ahí.
@@ -263,7 +297,15 @@ con la URL del paquete `.argosmodel` correspondiente del
   `bpe.model`) y usa el pipeline correspondiente.
 - **`compute_type` en `default` (no `int8`)**: probado que forzar cuantización int8 sobre
   estos modelos rompe la salida (genera texto repetitivo sin sentido) en al menos uno de los
-  dos pares -- no hace falta de todos modos, ya andan sobrados de rápido sin cuantizar.
+  pares -- no hace falta de todos modos, ya andan sobrados de rápido sin cuantizar.
+- **`sentencepiece.decode()` no es confiable para todos los paquetes**: probado con el par
+  `pt->en` -- el propio `decode()` de la librería (no nuestro código) unía mal algunas piezas,
+  dejando el marcador interno `▁` pegado a la palabra siguiente en vez de convertirlo en
+  espacio ("so▁much" en vez de "so much"), de forma inconsistente dentro de la misma frase.
+  El fix es no confiar en `decode()`: unir las piezas a mano y reemplazar `▁` por espacio
+  (el detokenizado estándar de SentencePiece), que da resultado idéntico donde `decode()` ya
+  andaba bien y arregla el caso que no. Por eso la advertencia arriba de probar cada idioma
+  nuevo con texto real, no asumir que todos los paquetes se comportan igual.
 
 ### Glosario de términos técnicos
 
@@ -301,12 +343,17 @@ sin transmitir.
 - [x] Integración OBS/vMix: `/overlay?session=ID`, pensado como Browser Source, con fondo
       transparente/detrás del texto/contorno, controlado en vivo desde `/operator` vía servidor
       (no `BroadcastChannel`, que no le llega al Browser Source embebido de OBS).
+- [x] Pantalla física de sala (`/screen?session=ID`), configurada por separado de OBS desde el
+      mismo panel del operador; `/audience` (celular de cada persona) con su propio menú de
+      temas/fuente/tamaño de lectura, independiente de lo anterior.
 - [x] Motor de transcripción seleccionable por sesión (local / OpenAI / Gemini audio) para
       comparar calidad y latencia.
 - [x] Traducción automática español↔inglés con un motor NMT local (CTranslate2 + Argos
       Translate, sin LLM), con glosario de términos técnicos por sesión.
-- [ ] Portugués como idioma adicional (sumar el par a `PACKAGE_URLS` en `translate.py` y
-      a los targets de `_targets_for` en `ws.py`)
+- [x] Motor `gemini_live` (Live API de Gemini, streaming real): ~0.5-0.6s de latencia,
+      pensado para deployments con muchas sesiones en paralelo en un solo servidor.
+- [x] Portugués como idioma de origen adicional (`pt→es` y `pt→en`), con fix de un bug real
+      de `sentencepiece.decode()` encontrado al probarlo con texto real.
 - [ ] Autenticación básica para las vistas de operador/monitoreo (hoy son abiertas).
 
 ## Licencia

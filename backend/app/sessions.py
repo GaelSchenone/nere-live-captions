@@ -2,6 +2,7 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 from .asr import DEFAULT_WHISPER_PRESET, DEFAULT_WHISPERCPP_PRESET
 from .engines import DEFAULT_ENGINE
@@ -31,10 +32,16 @@ class Session:
     segments: list[CaptionSegment] = field(default_factory=list)
     audience_ws: set = field(default_factory=set)
     ingest_ws: set = field(default_factory=set)  # WS del operador mandando audio; se cierran al terminar la sesion
+    # Solo para engine == "gemini_live": conexion persistente + tarea que
+    # drena sus resultados, viven mientras dura la sesion (no por segmento).
+    gemini_live: Any = None
+    gemini_live_drain_task: Any = None
     # Estilo de cada ventana de subtitulos, configurado por separado -- OBS
-    # (/overlay) y audiencia (/audience) suelen querer looks distintos (ej.
-    # OBS con fondo transparente, audiencia con fondo negro solido), aunque
-    # ambas se controlan desde el mismo panel del operador.
+    # (/overlay) y la pantalla fisica de la sala (/screen) suelen querer looks
+    # distintos (ej. OBS con fondo transparente, pantalla con fondo solido y
+    # letra grande para leerse de lejos), aunque ambas se controlan desde el
+    # mismo panel del operador. /audience (el celular de cada persona) no se
+    # controla desde aca -- cada quien elige su propia fuente ahi.
     styles: dict = field(
         default_factory=lambda: {
             "overlay": {
@@ -49,11 +56,11 @@ class Session:
                 "outline_enabled": False,
                 "outline_color": "#000000",
             },
-            "audience": {
+            "screen": {
                 "lang": "es",
                 "font_family": "system",
                 "text_color": "#ffffff",
-                "font_size": 28,
+                "font_size": 48,
                 "bg_mode": "solid",
                 "bg_color": "#000000",
                 "outline_enabled": False,

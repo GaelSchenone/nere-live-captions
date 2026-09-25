@@ -61,6 +61,8 @@
           <button id="stop" class="danger" disabled>Detener</button>
           <button id="open_overlay" class="secondary">Abrir ventana de subtítulos ↗</button>
           <button id="copy_overlay" class="secondary">Copiar link para OBS 📋</button>
+          <button id="open_screen" class="secondary">Abrir pantalla de sala ↗</button>
+          <button id="copy_screen" class="secondary">Copiar link de pantalla 📋</button>
           <button id="end_session" class="danger">Terminar sesión</button>
         </div>
         <p class="muted" style="margin-top:0.75rem">
@@ -86,10 +88,11 @@
         <h3 style="margin:14px 0 4px">Para OBS/vMix (<code>/overlay</code>)</h3>
         <div id="style-form-overlay" class="style-form" data-target="overlay" data-prefix="ov"></div>
 
-        <h3 style="margin:18px 0 4px">Para la audiencia (<code>/audience</code>)</h3>
-        <p class="muted" style="margin:0 0 6px">La audiencia además puede elegir su propia
-          fuente en su vista, esto es solo el look por defecto.</p>
-        <div id="style-form-audience" class="style-form" data-target="audience" data-prefix="au"></div>
+        <h3 style="margin:18px 0 4px">Para la pantalla de la sala (<code>/screen</code>)</h3>
+        <p class="muted" style="margin:0 0 6px">Para el TV/proyector físico de la sala --
+          sin selector propio, nadie la toca en vivo. <code>/audience</code> (el celular de
+          cada persona) no se configura desde acá, ahí cada quien elige su propia fuente.</p>
+        <div id="style-form-screen" class="style-form" data-target="screen" data-prefix="sc"></div>
       </div>
     </div>
 
@@ -171,6 +174,8 @@
     const stopBtn = document.getElementById('stop');
     const overlayBtn = document.getElementById('open_overlay');
     const copyOverlayBtn = document.getElementById('copy_overlay');
+    const screenBtn = document.getElementById('open_screen');
+    const copyScreenBtn = document.getElementById('copy_screen');
     const endSessionBtn = document.getElementById('end_session');
     const dot = document.getElementById('dot');
     const statusText = document.getElementById('status_text');
@@ -179,11 +184,20 @@
     function overlayUrl(sessionId) {
       return `${location.origin}/overlay?session=${sessionId}`;
     }
+    function screenUrl(sessionId) {
+      return `${location.origin}/screen?session=${sessionId}`;
+    }
 
     overlayBtn.addEventListener('click', () => {
       const sessionId = sessionInput.value.trim();
       if (!sessionId) { alert('Poné el id de la sesión'); return; }
       window.open(overlayUrl(sessionId), '_blank', 'width=1000,height=300');
+    });
+
+    screenBtn.addEventListener('click', () => {
+      const sessionId = sessionInput.value.trim();
+      if (!sessionId) { alert('Poné el id de la sesión'); return; }
+      window.open(screenUrl(sessionId), '_blank', 'width=1280,height=720');
     });
 
     async function copyToClipboard(text) {
@@ -213,6 +227,19 @@
         copyOverlayBtn.textContent = 'No se pudo copiar';
       }
       setTimeout(() => { copyOverlayBtn.textContent = originalLabel; }, 1800);
+    });
+
+    copyScreenBtn.addEventListener('click', async () => {
+      const sessionId = sessionInput.value.trim();
+      if (!sessionId) { alert('Poné el id de la sesión'); return; }
+      const originalLabel = copyScreenBtn.textContent;
+      try {
+        await copyToClipboard(screenUrl(sessionId));
+        copyScreenBtn.textContent = '¡Copiado! ✓';
+      } catch (e) {
+        copyScreenBtn.textContent = 'No se pudo copiar';
+      }
+      setTimeout(() => { copyScreenBtn.textContent = originalLabel; }, 1800);
     });
 
     // ---------- Config en vivo de las ventanas de subtitulos ----------

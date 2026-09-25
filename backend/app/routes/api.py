@@ -1,6 +1,9 @@
+import io
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+import qrcode
+import qrcode.image.svg
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -180,7 +183,7 @@ class StyleUpdate(BaseModel):
 
 
 BG_MODES = ["transparent", "solid", "behind_text"]
-STYLE_TARGETS = ["overlay", "audience"]
+STYLE_TARGETS = ["overlay", "screen"]
 STYLE_FIELDS = ("lang", "font_family", "text_color", "font_size", "bg_mode", "bg_color", "outline_enabled", "outline_color")
 
 
@@ -211,6 +214,21 @@ async def update_style(session_id: str, target: str, body: StyleUpdate):
 
     await manager.broadcast_style(s, target)
     return manager.style_payload(s, target)
+
+
+@router.get("/sessions/{session_id}/audience-qr.svg")
+async def audience_qr(session_id: str, request: Request):
+    s = manager.get(session_id)
+    if not s:
+        raise HTTPException(404, "session not found")
+    # request.base_url refleja el host/puerto con el que realmente se accedio
+    # al servidor (ej. la IP de la red local del evento) -- asi el QR apunta a
+    # algo que el celular de la audiencia puede alcanzar, no a "localhost".
+    url = f"{request.base_url}audience?session={session_id}"
+    img = qrcode.make(url, image_factory=qrcode.image.svg.SvgImage, box_size=8, border=1)
+    buf = io.BytesIO()
+    img.save(buf)
+    return Response(content=buf.getvalue(), media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
 
 
 @router.get("/sessions/{session_id}/export")
