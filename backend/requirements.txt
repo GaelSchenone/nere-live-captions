@@ -11,6 +11,7 @@ python-dotenv>=1.0
 pydantic>=2.7
 setuptools<81
 platformdirs>=4.0
+sqlalchemy>=2.0
 
 # Traduccion (NMT local, sin LLM): CTranslate2 ya viene con faster-whisper.
 # sentencepiece y subword-nmt/sacremoses cubren los dos esquemas de

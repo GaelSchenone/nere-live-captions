@@ -5,7 +5,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .asr import DEFAULT_WHISPER_PRESET, DEFAULT_WHISPERCPP_PRESET
+from .db import SessionLocal
 from .engines import DEFAULT_ENGINE
+from .models import SegmentRow, SessionRow
 
 
 @dataclass
@@ -21,6 +23,7 @@ class CaptionSegment:
 @dataclass
 class Session:
     id: str
+    owner_id: int
     name: str
     source_lang: str | None
     glossary: list[str]
@@ -65,6 +68,11 @@ class Session:
                 "bg_color": "#000000",
                 "outline_enabled": False,
                 "outline_color": "#000000",
+                # QR para que la audiencia entre a /audience escaneando -- solo
+                # tiene sentido en /screen (la pantalla fisica de la sala), no
+                # en /overlay (OBS/vMix, donde nadie escanea nada en vivo).
+                "qr_enabled": True,
+                "qr_size": 110,
             },
         }
     )
@@ -83,6 +91,38 @@ class Session:
     )
 
 
+def _hydrate(row: SessionRow) -> Session:
+    """Reconstruye una Session en RAM a partir de lo que quedo en DB -- es lo
+    que permite que una sesion siga respondiendo despues de un reinicio del
+    proceso, sin un sistema de resume mas elaborado: en cuanto alguien la
+    vuelve a pedir (operador reconecta el ingest, audiencia reconecta
+    captions), se hidrata sola."""
+    session = Session(
+        id=row.id,
+        owner_id=row.owner_id,
+        name=row.name,
+        source_lang=row.source_lang,
+        glossary=row.glossary or [],
+        engine=row.engine,
+        chunking=row.chunking,
+        whisper_preset=row.whisper_preset,
+        created_at=row.created_at,
+        status=row.status,
+    )
+    session.segments = [
+        CaptionSegment(
+            seq=s.seq,
+            start_ts=s.start_ts,
+            end_ts=s.end_ts,
+            source_lang=s.source_lang,
+            original_text=s.original_text,
+            translations=s.translations or {},
+        )
+        for s in row.segments
+    ]
+    return session
+
+
 class SessionManager:
     def __init__(self):
         self.sessions: dict[str, Session] = {}
@@ -90,6 +130,7 @@ class SessionManager:
 
     async def create(
         self,
+        owner_id: int,
         name: str,
         source_lang: str | None,
         glossary: list[str] | None,
@@ -104,26 +145,85 @@ class SessionManager:
         async with self._lock:
             if sid in self.sessions:
                 raise ValueError(f"session '{sid}' already exists")
-            session = Session(
-                id=sid,
-                name=name,
-                source_lang=source_lang,
-                glossary=glossary or [],
-                engine=resolved_engine,
-                chunking=chunking or "vad",
-                whisper_preset=whisper_preset or default_preset,
-            )
+            db = SessionLocal()
+            try:
+                if db.get(SessionRow, sid):
+                    raise ValueError(f"session '{sid}' already exists")
+                session = Session(
+                    id=sid,
+                    owner_id=owner_id,
+                    name=name,
+                    source_lang=source_lang,
+                    glossary=glossary or [],
+                    engine=resolved_engine,
+                    chunking=chunking or "vad",
+                    whisper_preset=whisper_preset or default_preset,
+                )
+                db.add(
+                    SessionRow(
+                        id=session.id,
+                        owner_id=owner_id,
+                        name=session.name,
+                        source_lang=session.source_lang,
+                        glossary=session.glossary,
+                        engine=session.engine,
+                        chunking=session.chunking,
+                        whisper_preset=session.whisper_preset,
+                        created_at=session.created_at,
+                        status=session.status,
+                    )
+                )
+                db.commit()
+            finally:
+                db.close()
             self.sessions[sid] = session
         return session
 
     def get(self, session_id: str) -> Session | None:
-        return self.sessions.get(session_id)
+        if session_id in self.sessions:
+            return self.sessions[session_id]
+        db = SessionLocal()
+        try:
+            row = db.get(SessionRow, session_id)
+            if not row:
+                return None
+            session = _hydrate(row)
+        finally:
+            db.close()
+        self.sessions[session_id] = session
+        return session
 
-    def list(self) -> list[Session]:
-        return list(self.sessions.values())
+    def list(self, owner_id: int) -> list[Session]:
+        db = SessionLocal()
+        try:
+            rows = db.query(SessionRow).filter(SessionRow.owner_id == owner_id).all()
+            return [self.sessions.get(row.id) or _hydrate(row) for row in rows]
+        finally:
+            db.close()
 
     def remove(self, session_id: str) -> bool:
-        return self.sessions.pop(session_id, None) is not None
+        self.sessions.pop(session_id, None)
+        db = SessionLocal()
+        try:
+            row = db.get(SessionRow, session_id)
+            if not row:
+                return False
+            db.delete(row)
+            db.commit()
+            return True
+        finally:
+            db.close()
+
+    def end(self, session: Session) -> None:
+        session.status = "ended"
+        db = SessionLocal()
+        try:
+            row = db.get(SessionRow, session.id)
+            if row:
+                row.status = "ended"
+                db.commit()
+        finally:
+            db.close()
 
     async def close_ingest(self, session: Session):
         # Corta las conexiones del operador que siguen mandando audio -- si no,
@@ -156,6 +256,25 @@ class SessionManager:
         session.segments.append(segment)
         session.monitor_stats["segments_emitted"] += 1
         session.monitor_stats["last_activity"] = time.time()
+        db = SessionLocal()
+        try:
+            # Insert sincronico por segmento -- a esta escala (subtitulos, no
+            # cientos por segundo) no hace falta cola/batch.
+            # ponytail: si el volumen real lo justifica, batchear.
+            db.add(
+                SegmentRow(
+                    session_id=session.id,
+                    seq=segment.seq,
+                    start_ts=segment.start_ts,
+                    end_ts=segment.end_ts,
+                    source_lang=segment.source_lang,
+                    original_text=segment.original_text,
+                    translations=segment.translations,
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
         payload = {
             "type": "caption",
             "seq": segment.seq,

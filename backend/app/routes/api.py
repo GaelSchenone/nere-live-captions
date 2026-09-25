@@ -3,7 +3,7 @@ from typing import Optional
 
 import qrcode
 import qrcode.image.svg
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -15,12 +15,24 @@ from ..asr import (
     whisper_preset_downloaded,
     whispercpp_preset_downloaded,
 )
+from ..auth import get_current_user
 from ..config import settings
 from ..engines import DEFAULT_ENGINE, ENGINE_LABELS, ENGINES, engine_available
 from ..export import export_srt, export_txt, export_vtt
-from ..sessions import manager
+from ..models import User
+from ..sessions import Session, manager
 
 router = APIRouter(prefix="/api")
+
+
+def _owned_session(session_id: str, user: User) -> Session:
+    s = manager.get(session_id)
+    if not s:
+        raise HTTPException(404, "session not found")
+    if s.owner_id != user.id:
+        raise HTTPException(403, "no sos el dueño de esta sesion")
+    return s
+
 
 CHUNKING_MODES = ["vad", "fixed"]
 
@@ -77,7 +89,7 @@ async def get_vad_settings():
 
 
 @router.post("/vad-settings")
-async def update_vad_settings(body: VadSettingsUpdate):
+async def update_vad_settings(body: VadSettingsUpdate, user: User = Depends(get_current_user)):
     # Cambia la config en memoria del proceso (no se escribe al .env). Las
     # sesiones que ya estan corriendo siguen con los valores que tenian; las
     # sesiones nuevas que se creen de aca en mas usan estos.
@@ -111,7 +123,7 @@ class CreateSessionRequest(BaseModel):
 
 
 @router.post("/sessions")
-async def create_session(req: CreateSessionRequest):
+async def create_session(req: CreateSessionRequest, user: User = Depends(get_current_user)):
     if req.engine and req.engine not in ENGINES:
         raise HTTPException(400, f"engine debe ser uno de: {', '.join(ENGINES)}")
     if req.chunking and req.chunking not in CHUNKING_MODES:
@@ -122,7 +134,7 @@ async def create_session(req: CreateSessionRequest):
             raise HTTPException(400, f"whisper_preset debe ser uno de: {', '.join(valid_presets)}")
     try:
         session = await manager.create(
-            req.name, req.source_lang, req.glossary, req.session_id, req.engine, req.chunking, req.whisper_preset
+            user.id, req.name, req.source_lang, req.glossary, req.session_id, req.engine, req.chunking, req.whisper_preset
         )
     except ValueError as e:
         raise HTTPException(409, str(e))
@@ -137,7 +149,7 @@ async def create_session(req: CreateSessionRequest):
 
 
 @router.get("/sessions")
-async def list_sessions():
+async def list_sessions(user: User = Depends(get_current_user)):
     return [
         {
             "id": s.id,
@@ -152,15 +164,13 @@ async def list_sessions():
             "audience_count": len(s.audience_ws),
             "segment_count": len(s.segments),
         }
-        for s in manager.list()
+        for s in manager.list(user.id)
     ]
 
 
 @router.get("/sessions/{session_id}")
-async def get_session(session_id: str):
-    s = manager.get(session_id)
-    if not s:
-        raise HTTPException(404, "session not found")
+async def get_session(session_id: str, user: User = Depends(get_current_user)):
+    s = _owned_session(session_id, user)
     return {
         "id": s.id,
         "name": s.name,
@@ -175,20 +185,16 @@ async def get_session(session_id: str):
 
 
 @router.post("/sessions/{session_id}/end")
-async def end_session(session_id: str):
-    s = manager.get(session_id)
-    if not s:
-        raise HTTPException(404, "session not found")
-    s.status = "ended"
+async def end_session(session_id: str, user: User = Depends(get_current_user)):
+    s = _owned_session(session_id, user)
+    manager.end(s)
     await manager.close_ingest(s)
     return {"ok": True}
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
-    s = manager.get(session_id)
-    if not s:
-        raise HTTPException(404, "session not found")
+async def delete_session(session_id: str, user: User = Depends(get_current_user)):
+    s = _owned_session(session_id, user)
     await manager.close_ingest(s)
     manager.remove(session_id)
     return {"ok": True}
@@ -203,11 +209,24 @@ class StyleUpdate(BaseModel):
     bg_color: Optional[str] = None
     outline_enabled: Optional[bool] = None
     outline_color: Optional[str] = None
+    qr_enabled: Optional[bool] = None
+    qr_size: Optional[int] = None
 
 
 BG_MODES = ["transparent", "solid", "behind_text"]
 STYLE_TARGETS = ["overlay", "screen"]
-STYLE_FIELDS = ("lang", "font_family", "text_color", "font_size", "bg_mode", "bg_color", "outline_enabled", "outline_color")
+STYLE_FIELDS = (
+    "lang",
+    "font_family",
+    "text_color",
+    "font_size",
+    "bg_mode",
+    "bg_color",
+    "outline_enabled",
+    "outline_color",
+    "qr_enabled",
+    "qr_size",
+)
 
 
 @router.get("/sessions/{session_id}/style/{target}")
@@ -221,12 +240,10 @@ async def get_style(session_id: str, target: str):
 
 
 @router.post("/sessions/{session_id}/style/{target}")
-async def update_style(session_id: str, target: str, body: StyleUpdate):
+async def update_style(session_id: str, target: str, body: StyleUpdate, user: User = Depends(get_current_user)):
     if target not in STYLE_TARGETS:
         raise HTTPException(400, f"target debe ser uno de: {', '.join(STYLE_TARGETS)}")
-    s = manager.get(session_id)
-    if not s:
-        raise HTTPException(404, "session not found")
+    s = _owned_session(session_id, user)
     if body.bg_mode is not None and body.bg_mode not in BG_MODES:
         raise HTTPException(400, f"bg_mode debe ser uno de: {', '.join(BG_MODES)}")
 
@@ -255,10 +272,8 @@ async def audience_qr(session_id: str, request: Request):
 
 
 @router.get("/sessions/{session_id}/export")
-async def export_session(session_id: str, format: str = "srt", lang: str = "original"):
-    s = manager.get(session_id)
-    if not s:
-        raise HTTPException(404, "session not found")
+async def export_session(session_id: str, format: str = "srt", lang: str = "original", user: User = Depends(get_current_user)):
+    s = _owned_session(session_id, user)
 
     if format == "srt":
         content, media = export_srt(s, lang), "application/x-subrip"

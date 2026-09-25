@@ -37,5 +37,7 @@ class Settings:
     google_cloud_api_key: str = os.getenv("GOOGLE_CLOUD_API_KEY", "")
     google_speech_model: str = os.getenv("GOOGLE_SPEECH_MODEL", "latest_short")
 
+    database_url: str = os.getenv("DATABASE_URL", "sqlite:///./nere.db")
+
 
 settings = Settings()
