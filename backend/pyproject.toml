@@ -19,7 +19,8 @@ dependencies = [
     "setuptools<81",
     "subword-nmt>=0.3.8",
     "uvicorn[standard]>=0.30",
-    "webrtcvad>=2.0.10",
+    "webrtcvad-wheels>=2.0.10; sys_platform == 'win32'",
+    "webrtcvad>=2.0.10; sys_platform != 'win32'",
 ]
 
 [tool.uv]
